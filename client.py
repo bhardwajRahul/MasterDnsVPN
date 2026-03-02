@@ -647,12 +647,17 @@ class MasterDnsVPNClient:
         """Run the MasterDnsVPN Client main logic."""
         self.logger.info("Setting up connections...")
         try:
-            await self.create_connection_map()
+            valid_conns = [c for c in self.connections_map if c.get("is_valid")]
 
-            if not await self.test_mtu_sizes():
-                return
+            if not valid_conns:
+                await self.create_connection_map()
+                if not await self.test_mtu_sizes():
+                    return
+            else:
+                self.logger.info(
+                    "<green>Using cached MTU values. Skipping MTU tests...</green>"
+                )
 
-            # Sync MTUs - Select lowest possible valid MTU for robust connections
             valid_conns = [c for c in self.connections_map if c.get("is_valid")]
             self.synced_upload_mtu = min(c["upload_mtu_bytes"] for c in valid_conns)
             self.synced_download_mtu = min(c["download_mtu_bytes"] for c in valid_conns)
