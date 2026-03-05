@@ -102,7 +102,6 @@ class ARQStream:
                     self.snd_buf[sn] = {
                         "data": raw_data,
                         "time": time.time(),
-                        "first_sent": time.time(),
                         "retries": 0,
                     }
 
@@ -167,30 +166,25 @@ class ARQStream:
                 self.window_not_full.set()
 
     async def check_retransmits(self):
-        if self.closed or not self.snd_buf:
+        if self.closed:
             return
 
         now = time.time()
-
-        if now - self.last_activity > 300:
-            await self.close(reason="Inactivity Timeout")
-            return
-
         items_to_resend = []
         stream_dead = False
-        async with self._snd_lock:
-            for sn, info in self.snd_buf.items():
-                if now - info["time"] >= self.rto:
-                    if now - info.get("first_sent", info["time"]) > 120.0:
-                        stream_dead = True
-                        break
 
-                    items_to_resend.append((sn, info["data"]))
-                    info["time"] = now
-                    info["retries"] += 1
+        if now - getattr(self, "last_activity", now) > 300.0:
+            stream_dead = True
+        else:
+            async with self._snd_lock:
+                for sn, info in self.snd_buf.items():
+                    if now - info["time"] >= self.rto:
+                        items_to_resend.append((sn, info["data"]))
+                        info["time"] = now
+                        info["retries"] += 1
 
         if stream_dead:
-            await self.close(reason="Max ARQ retries reached (Stream Dead)")
+            await self.close(reason="Stream Inactivity Timeout (Dead)")
             return
 
         for sn, data in items_to_resend:
