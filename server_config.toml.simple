@@ -86,4 +86,29 @@ SESSION_CLEANUP_INTERVAL = 60  # 1 minute
 # ---------------------------------------------------------------------------
 # ARQ window size (number of unacknowledged packets allowed in flight).
 # Larger window sizes can improve performance on high-latency connections but may increase memory usage.
-ARQ_WINDOW_SIZE = 300
+ARQ_WINDOW_SIZE = 600
+
+# ---------------------------------------------------------------------------
+# Performance & Resource Management
+# ---------------------------------------------------------------------------
+# Maximum number of concurrent DNS requests the server will process simultaneously.
+# - If your server has strong CPU and RAM (e.g., Dedicated Server), you can increase this to 5000.
+# - If you are using a cheap or Micro VPS, keep this between 500 and 1000 to prevent memory exhaustion.
+MAX_CONCURRENT_REQUESTS = 1000
+
+# UDP socket buffer size in bytes (Receive and Send).
+# The default is 8MB (8388608 bytes), which is excellent for preventing packet drops under heavy load.
+# - Reduce this to 2MB (2097152) or 4MB (4194304) only if your server has extremely low RAM.
+SOCKET_BUFFER_SIZE = 8388608
+
+# ---------------------------------------------------------------------------
+# ARQ (Automatic Repeat reQuest) Advanced Settings
+# ---------------------------------------------------------------------------
+# Initial Retransmission TimeOut (RTO) in seconds for lost packets.
+# - Lower values (e.g., 0.2 or 0.3) provide faster recovery on low-ping connections.
+# - Higher values (e.g., 0.5 to 0.8) are better for high-latency or unstable remote servers.
+ARQ_INITIAL_RTO = 0.8
+
+# Maximum Retransmission TimeOut in seconds.
+# This caps the exponential backoff algorithm to prevent the timeout from growing infinitely during severe network drops.
+ARQ_MAX_RTO = 1.5

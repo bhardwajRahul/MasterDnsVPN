@@ -947,6 +947,8 @@ class MasterDnsVPNServer:
                 mtu=session.get("download_mtu", 150),
                 logger=self.logger,
                 window_size=self.arq_window_size,
+                rto=float(self.config.get("ARQ_INITIAL_RTO", 0.8)),
+                max_rto=float(self.config.get("ARQ_MAX_RTO", 1.5)),
             )
 
             stream_data["arq_obj"] = stream
@@ -1022,11 +1024,12 @@ class MasterDnsVPNServer:
             self.logger.debug("Binding UDP socket ...")
             self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
+                buffer_size = int(self.config.get("SOCKET_BUFFER_SIZE", 8388608))
                 self.udp_sock.setsockopt(
-                    socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size
                 )
                 self.udp_sock.setsockopt(
-                    socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024
+                    socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size
                 )
             except Exception as e:
                 self.logger.debug(f"Failed to increase server socket buffer: {e}")

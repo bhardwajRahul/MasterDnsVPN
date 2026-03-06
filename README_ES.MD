@@ -176,6 +176,10 @@ El cliente inicia un proxy SOCKS5 local en `127.0.0.1:1080` (configurable median
 | `FORWARD_IP` | `"127.0.0.1"` | IP del proxy/servicio local al que se reenvía el tráfico descifrado. |
 | `FORWARD_PORT` | `8080` | Puerto del proxy/servicio local (p. ej. `1080` para SOCKS5, `443` para VLESS). |
 | `ARQ_WINDOW_SIZE` | `600` | Tamaño de la ventana ARQ (número de paquetes no reconocidos permitidos en vuelo). Ventanas más grandes pueden mejorar el rendimiento en conexiones de alta latencia pero pueden aumentar el uso de memoria. |
+| `SOCKET_BUFFER_SIZE` | `8388608` (8 MB) | Tamaño del buffer de envío/recepción del socket UDP. Aumente si tiene alto rendimiento y desea reducir la pérdida de paquetes debido a desbordamiento de buffer. |
+| `MAX_CONCURRENT_REQUESTS` | `1000` | Número máximo de solicitudes DNS concurrentes que el servidor procesará. Ajuste según la carga esperada y la capacidad del servidor. |
+| `ARQ_INITIAL_RTO` | `0.8` | Tiempo de espera inicial de retransmisión (segundos) para ARQ. Ajuste según la latencia de la red. |
+| `ARQ_MAX_RTO` | `1.5` | Tiempo de espera máximo de retransmisión (segundos) para ARQ. Esto limita el backoff exponencial para evitar retrasos excesivos. |
 
 ### 💻 Cliente — `client_config.toml`
 
@@ -197,6 +201,11 @@ El cliente inicia un proxy SOCKS5 local en `127.0.0.1:1080` (configurable median
 | `NUM_DNS_WORKERS` | `4` | Número de tareas async DNS concurrentes. Aumente para mayor tráfico. |
 | `PACKET_DUPLICATION_COUNT` | `3` | Rutas resolver+dominio por las que se envía cada paquete simultáneamente. Mayor = más fiable pero más ancho de banda. |
 | `ARQ_WINDOW_SIZE` | `600` | Tamaño de la ventana ARQ (número de paquetes no reconocidos permitidos en vuelo). Ventanas más grandes pueden mejorar el rendimiento en conexiones de alta latencia pero pueden aumentar el uso de memoria. |
+| `SOCKET_BUFFER_SIZE` | `8388608` (8 MB) | Tamaño del buffer de envío/recepción del socket UDP. Aumente si tiene alto rendimiento y desea reducir la pérdida de paquetes debido a desbordamiento de buffer. |
+| `ARQ_INITIAL_RTO` | `0.8` | Tiempo de espera inicial de retransmisión (segundos) para ARQ. Ajuste según la latencia de la red. |
+| `ARQ_MAX_RTO` | `1.5` | Tiempo de espera máximo de retransmisión (segundos) para ARQ. Esto limita el backoff exponencial para evitar retrasos excesivos. |
+| `NUM_RX_WORKERS` | `2` | Número de tareas async que procesan los paquetes recibidos. Aumente para mayor tráfico. |
+| `MAX_CONNECTION_ATTEMPTS` | `10` | Número máximo de intentos de conexión antes de rendirse. Ajuste según la confiabilidad de la red. |
 
 ---
 

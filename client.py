@@ -347,7 +347,7 @@ class MasterDnsVPNClient:
 
         if packet_type == Packet_Type.MTU_UP_RES:
             self.logger.success(
-                f"<green>Upload Test Success: <yellow>{mtu_size}</yellow> via <cyan>{dns_server}</cyan> for <cyan>{domain}</cyan></green>"
+                f"<yellow>Upload Test Success: <green>{mtu_size}</green> via <cyan>{dns_server}</cyan> for <cyan>{domain}</cyan></yellow>"
             )
             return True
         elif packet_type == Packet_Type.ERROR_DROP:
@@ -395,7 +395,7 @@ class MasterDnsVPNClient:
         if packet_type == Packet_Type.MTU_DOWN_RES:
             if returned_data and len(returned_data) == mtu_size:
                 self.logger.success(
-                    f"<green>Download Test Success: <yellow>{mtu_size}</yellow> via <cyan>{dns_server}</cyan> for <cyan>{domain}</cyan></green>"
+                    f"<yellow>Download Test Success: <green>{mtu_size}</green> via <cyan>{dns_server}</cyan> for <cyan>{domain}</cyan></yellow>"
                 )
                 return True
             else:
@@ -757,6 +757,21 @@ class MasterDnsVPNClient:
 
                 self.logger.success("<green>MTU Testing Completed!</green>")
                 self.logger.info("=" * 80)
+                self.logger.info("<cyan>Valid Connections After MTU Testing:</cyan>")
+                self.logger.info("=" * 80)
+                self.logger.info(
+                    f"{'Resolver':<20} {'Upload MTU':<15} {'Download MTU':<15} {'Domain':<30}"
+                )
+                self.logger.info("-" * 80)
+                for conn in valid_conns:
+                    resolver = conn.get("resolver", "N/A")
+                    up_mtu = conn.get("upload_mtu_bytes", 0)
+                    down_mtu = conn.get("download_mtu_bytes", 0)
+                    domain = conn.get("domain", "N/A")
+                    self.logger.info(
+                        f"<cyan>{resolver:<20}</cyan> <green>{up_mtu:<15}</green> <green>{down_mtu:<15}</green> <blue>{domain:<30}</blue>"
+                    )
+                self.logger.info("=" * 80)
                 self.logger.success(
                     f"<blue>Total valid resolvers after MTU testing: <cyan>{len(self.balancer.valid_servers)}</cyan> of <cyan>{all_resolvers}</cyan></blue>"
                 )
@@ -778,8 +793,8 @@ class MasterDnsVPNClient:
             if not selected_conn:
                 self.logger.error("No active servers available from Balancer.")
                 return
-
-            if not await self._init_session():
+            max_attempts = self.config.get("MAX_CONNECTION_ATTEMPTS", 10)
+            if not await self._init_session(max_attempts):
                 self.logger.error("Failed to initialize session with the server.")
                 return
 
@@ -787,7 +802,7 @@ class MasterDnsVPNClient:
                 f"<green>Session Established! Session ID: <cyan>{self.session_id}</cyan></green>"
             )
 
-            if not await self._sync_mtu_with_server():
+            if not await self._sync_mtu_with_server(max_attempts):
                 self.logger.error("Failed to sync MTU with the server.")
                 return
 
@@ -821,11 +836,12 @@ class MasterDnsVPNClient:
 
         self.tunnel_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
+            buffer_size = int(self.config.get("SOCKET_BUFFER_SIZE", 8388608))
             self.tunnel_sock.setsockopt(
-                socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024
+                socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size
             )
             self.tunnel_sock.setsockopt(
-                socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024
+                socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size
             )
         except Exception as e:
             self.logger.debug(f"Failed to increase socket buffer: {e}")
@@ -867,7 +883,10 @@ class MasterDnsVPNClient:
             )
 
             self.workers = []
-            self.workers.append(self.loop.create_task(self._rx_worker()))
+
+            num_rx_workers = self.config.get("NUM_RX_WORKERS", 2)
+            for _ in range(num_rx_workers):
+                self.workers.append(self.loop.create_task(self._rx_worker()))
 
             num_workers = self.config.get("NUM_DNS_WORKERS", 4)
             self.logger.debug(
@@ -1363,6 +1382,8 @@ class MasterDnsVPNClient:
                     mtu=safe_uplink_mtu,
                     logger=self.logger,
                     window_size=self.config.get("ARQ_WINDOW_SIZE", 600),
+                    rto=float(self.config.get("ARQ_INITIAL_RTO", 0.8)),
+                    max_rto=float(self.config.get("ARQ_MAX_RTO", 1.5)),
                 )
 
                 stream_data["stream"] = stream

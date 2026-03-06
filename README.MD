@@ -176,6 +176,11 @@ The client starts a local SOCKS5 proxy on `127.0.0.1:1080` (configurable via `LI
 | `FORWARD_IP` | `"127.0.0.1"` | IP of the local proxy/service that decrypted traffic is forwarded to. |
 | `FORWARD_PORT` | `8080` | Port of the local proxy/service (e.g. `1080` for SOCKS5, `443` for VLESS). |
 | `ARQ_WINDOW_SIZE` | `600` | ARQ window size (number of unacknowledged packets allowed in flight). Larger window sizes can improve performance on high-latency connections but may increase memory usage. |
+| `SOCKET_BUFFER_SIZE` | `8388608` (8 MB) | Size of the UDP socket send/receive buffer. Increase if you have high throughput and want to reduce packet loss due to buffer overflow. |
+| `MAX_CONCURRENT_REQUESTS` | `1000` | Maximum number of concurrent DNS requests the server will process. Adjust based on expected load and server capacity. |
+| `ARQ_INITIAL_RTO` | `0.8` | Initial Retransmission Timeout (seconds) for ARQ. Adjust based on network latency. |
+| `ARQ_MAX_RTO` | `1.5` | Maximum Retransmission Timeout (seconds) for ARQ. This caps the exponential backoff to prevent excessively long delays. |
+
 
 ### 💻 Client — `client_config.toml`
 
@@ -197,6 +202,11 @@ The client starts a local SOCKS5 proxy on `127.0.0.1:1080` (configurable via `LI
 | `NUM_DNS_WORKERS` | `4` | Number of concurrent async DNS worker tasks. Increase for higher traffic. |
 | `PACKET_DUPLICATION_COUNT` | `3` | How many resolver+domain paths each packet is sent through simultaneously. Higher = more reliable but more bandwidth. |
 | `ARQ_WINDOW_SIZE` | `600` | ARQ window size (number of unacknowledged packets allowed in flight). Larger window sizes can improve performance on high-latency connections but may increase memory usage. |
+| `SOCKET_BUFFER_SIZE` | `8388608` (8 MB) | Size of the UDP socket send/receive buffer. Increase if you have high throughput and want to reduce packet loss due to buffer overflow. |
+| `ARQ_INITIAL_RTO` | `0.8` | Initial Retransmission Timeout (seconds) for ARQ. Adjust based on network latency. |
+| `ARQ_MAX_RTO` | `1.5` | Maximum Retransmission Timeout (seconds) for ARQ. This caps the exponential backoff to prevent excessively long delays. |
+| `NUM_RX_WORKERS` | `2` | Number of concurrent async workers processing received packets. Increase for higher traffic. |
+| `MAX_CONNECTION_ATTEMPTS` | `10` | Maximum number of connection attempts before giving up. Adjust based on network reliability. |
 
 ---
 

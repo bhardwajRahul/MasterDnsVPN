@@ -34,6 +34,8 @@ class ARQStream:
         mtu,
         logger=None,
         window_size: int = 600,
+        rto: float = 0.8,
+        max_rto: float = 1.5,
     ):
         self.stream_id = stream_id
         self.session_id = session_id
@@ -48,11 +50,13 @@ class ARQStream:
         self.rcv_buf = {}
 
         self.last_activity = time.monotonic()
-        self.rto = 1.0
         self.closed = False
         self.close_reason = "Unknown"
         self.logger = logger or self._DummyLogger()
         self._fin_sent = False
+
+        self.rto = rto
+        self.max_rto = max_rto
 
         self.window_size = window_size
         self.limit = max(50, int(self.window_size * 0.8))
@@ -202,10 +206,11 @@ class ARQStream:
 
         items_to_resend = []
         _append = items_to_resend.append
-        _rto = self.rto
 
         for sn, info in list(self.snd_buf.items()):
-            if now - info["time"] >= _rto:
+            current_packet_rto = min(self.max_rto, self.rto * (1.5 ** info["retries"]))
+
+            if now - info["time"] >= current_packet_rto:
                 _append((sn, info["data"]))
                 info["time"] = now
                 info["retries"] += 1

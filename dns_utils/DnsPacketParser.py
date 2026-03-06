@@ -2,12 +2,14 @@
 # Author: MasterkinG32
 # Github: https://github.com/masterking32
 # Year: 2026
-import os
+import base64
 import hashlib
 import math
+import os
 import random
-from typing import Any, Optional
 import struct
+from typing import Any, Optional
+
 from dns_utils.DNS_ENUMS import DNS_QClass, DNS_Record_Type, Packet_Type
 
 
@@ -55,7 +57,7 @@ class DnsPacketParser:
         v for k, v in DNS_Record_Type.__dict__.items() if not k.startswith("__")
     )
 
-    LOG2_36 = math.log2(36)
+    LOG2_36 = 5
 
     def __init__(
         self,
@@ -95,8 +97,8 @@ class DnsPacketParser:
 
         elif self.encryption_method == 2:
             try:
-                from cryptography.hazmat.primitives.ciphers import Cipher
                 from cryptography.hazmat.backends import default_backend
+                from cryptography.hazmat.primitives.ciphers import Cipher
 
                 self._Cipher = Cipher
                 self._default_backend = default_backend
@@ -104,7 +106,6 @@ class DnsPacketParser:
                 pass
 
         self._setup_crypto_dispatch()
-        self.base9x_alphabet = r"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&()*+,-/;<=>?@[]^_`{|}~"
         self._alphabet_cache = {}
         self._int_bytes_cache = {
             i: (str(i) + ".").encode("ascii", errors="ignore") for i in range(512)
@@ -493,27 +494,11 @@ class DnsPacketParser:
         if not data_bytes:
             return ""
 
-        alph = (
-            alphabet
-            if alphabet is not None
-            else (
-                "0123456789abcdefghijklmnopqrstuvwxyz"
-                if lowerCaseOnly
-                else self.base9x_alphabet
-            )
-        )
-        base = len(alph)
-
-        num = int.from_bytes(b"\x01" + data_bytes, byteorder="big")
-
-        res = []
-        _append = res.append
-
-        while num:
-            num, rem = divmod(num, base)
-            _append(alph[rem])
-
-        return "".join(reversed(res))
+        if lowerCaseOnly:
+            encoded = base64.b32encode(data_bytes).decode("ascii", errors="ignore")
+            return encoded.replace("=", "").lower()
+        else:
+            return base64.b64encode(data_bytes).decode("ascii", errors="ignore")
 
     def base_decode(
         self,
@@ -524,45 +509,20 @@ class DnsPacketParser:
         if not encoded_str:
             return b""
 
-        alph = (
-            alphabet
-            if alphabet is not None
-            else (
-                "0123456789abcdefghijklmnopqrstuvwxyz"
-                if lowerCaseOnly
-                else self.base9x_alphabet
-            )
-        )
-        base = len(alph)
-
-        char_map = self._alphabet_cache.get(alph)
-        if char_map is None:
-            char_map = {c: i for i, c in enumerate(alph)}
-            self._alphabet_cache[alph] = char_map
-
-        # Fast-path: native int(s, base) for common lowercase alphabets up to base36
-        if base <= 36 and alph == "0123456789abcdefghijklmnopqrstuvwxyz"[:base]:
-            valid_chars = "".join(c for c in encoded_str if c in char_map)
-            if not valid_chars:
-                return b""
+        if lowerCaseOnly:
+            pad_len = (8 - (len(encoded_str) % 8)) % 8
+            padded_str = encoded_str.upper() + ("=" * pad_len)
             try:
-                num = int(valid_chars, base)
-            except ValueError:
+                return base64.b32decode(padded_str)
+            except Exception:
                 return b""
         else:
-            num = 0
-            _get = char_map.get
-            for ch in encoded_str:
-                v = _get(ch)
-                if v is not None:
-                    num = num * base + v
-
-        if num == 0:
-            return b""
-
-        full_bytes = num.to_bytes((num.bit_length() + 7) // 8, byteorder="big")
-
-        return full_bytes[1:] if full_bytes[0] == 1 else full_bytes
+            pad_len = (4 - (len(encoded_str) % 4)) % 4
+            padded_str = encoded_str + ("=" * pad_len)
+            try:
+                return base64.b64decode(padded_str)
+            except Exception:
+                return b""
 
     def _setup_crypto_dispatch(self):
         """Pre-bind crypto functions to avoid if/else overhead in hot-paths."""
@@ -830,7 +790,6 @@ class DnsPacketParser:
             total_fragments=total_fragments,
             total_data_length=total_data_length,
         )
-        # Localize and fast-path: encode the full data once (all chars are ASCII from base_encode)
         base_enc = self.base_encode
         simple_ans = self.simple_answer_packet
         txt_type = DNS_Record_Type.TXT
@@ -869,8 +828,7 @@ class DnsPacketParser:
             id_bytes = _int_cache.get(answer_id)
             if id_bytes is None:
                 id_bytes = (str(answer_id) + ".").encode("ascii", errors="ignore")
-                if answer_id < 512:
-                    _int_cache[answer_id] = id_bytes
+                _int_cache[answer_id] = id_bytes
 
             if answer_id == 0:
                 prefix_bytes = header_prefix_bytes + id_bytes
