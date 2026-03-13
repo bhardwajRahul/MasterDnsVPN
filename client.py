@@ -197,6 +197,13 @@ class MasterDnsVPNClient(PacketQueueMixin):
         self.arq_window_size = self.config.get("ARQ_WINDOW_SIZE", 1000)
         self.arq_initial_rto = self.config.get("ARQ_INITIAL_RTO", 0.2)
         self.arq_max_rto = self.config.get("ARQ_MAX_RTO", 1.5)
+        self.arq_control_initial_rto = float(
+            self.config.get("ARQ_CONTROL_INITIAL_RTO", 0.8)
+        )
+        self.arq_control_max_rto = float(self.config.get("ARQ_CONTROL_MAX_RTO", 2.5))
+        self.arq_control_max_retries = int(
+            self.config.get("ARQ_CONTROL_MAX_RETRIES", 40)
+        )
         self.rx_semaphore_limit = int(self.config.get("RX_SEMAPHORE_LIMIT", 1000))
         self.rx_semaphore = asyncio.Semaphore(max(1, self.rx_semaphore_limit))
 
@@ -1644,14 +1651,6 @@ class MasterDnsVPNClient(PacketQueueMixin):
             )
             return False
 
-        self.logger.info(
-            f"<cyan>MTU scan summary:</cyan> valid=<green>{counters['valid']}</green>, "
-            f"rejected_upload=<yellow>{counters['reject_upload']}</yellow>, "
-            f"rejected_download=<yellow>{counters['reject_download']}</yellow>, "
-            f"other=<yellow>{max(0, total_conns - counters['completed'])}</yellow>, "
-            f"total=<cyan>{total_conns}</cyan>"
-        )
-
         self.initial_mtu_scan_finished_at = time.monotonic()
         self.next_inactive_recheck_at = (
             self.initial_mtu_scan_finished_at + self.recheck_inactive_interval_seconds
@@ -2193,8 +2192,17 @@ class MasterDnsVPNClient(PacketQueueMixin):
 
         if sys.platform == "win32":
             try:
-                SIO_UDP_CONNRESET = -1744830452
-                self.tunnel_sock.ioctl(SIO_UDP_CONNRESET, False)
+                sio_udp_connreset = getattr(socket, "SIO_UDP_CONNRESET", 0x9800000C)
+                if hasattr(self.tunnel_sock, "ioctl"):
+                    self.tunnel_sock.ioctl(sio_udp_connreset, 0)
+            except OSError as e:
+                msg = str(e).lower()
+                if "invalid ioctl command" in msg or "not supported" in msg:
+                    self.logger.debug(
+                        "SIO_UDP_CONNRESET is not supported in this runtime; continuing without it."
+                    )
+                else:
+                    self.logger.debug(f"Failed to set SIO_UDP_CONNRESET: {e}")
             except Exception as e:
                 self.logger.debug(f"Failed to set SIO_UDP_CONNRESET: {e}")
 
@@ -2412,6 +2420,38 @@ class MasterDnsVPNClient(PacketQueueMixin):
     def _build_socks5_fail_reply(self, packet_type: int) -> bytes:
         rep = self._packet_type_to_socks5_rep(packet_type)
         return bytes([0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+
+    def _create_client_arq_stream(
+        self,
+        stream_id: int,
+        reader,
+        writer,
+        is_socks: bool = False,
+        initial_data: bytes = b"",
+    ) -> ARQ:
+        kwargs = {}
+        if is_socks:
+            kwargs["is_socks"] = True
+            kwargs["initial_data"] = initial_data
+
+        return ARQ(
+            stream_id=stream_id,
+            session_id=self.session_id,
+            enqueue_tx_cb=self._client_enqueue_tx,
+            enqueue_control_tx_cb=self._client_enqueue_control_tx,
+            reader=reader,
+            writer=writer,
+            mtu=self.safe_uplink_mtu,
+            logger=self.logger,
+            window_size=int(self.arq_window_size),
+            rto=float(self.arq_initial_rto),
+            max_rto=float(self.arq_max_rto),
+            enable_control_reliability=True,
+            control_rto=self.arq_control_initial_rto,
+            control_max_rto=self.arq_control_max_rto,
+            control_max_retries=self.arq_control_max_retries,
+            **kwargs,
+        )
 
     async def _handle_local_tcp_connection(self, reader, writer):
         if self.should_stop.is_set() or (
@@ -2680,22 +2720,10 @@ class MasterDnsVPNClient(PacketQueueMixin):
         stream_data = self.active_streams[stream_id]
         stream_data["status"] = "ACTIVE"
 
-        stream = ARQ(
+        stream = self._create_client_arq_stream(
             stream_id=stream_id,
-            session_id=self.session_id,
-            enqueue_tx_cb=self._client_enqueue_tx,
-            enqueue_control_tx_cb=self._client_enqueue_control_tx,
             reader=reader,
             writer=writer,
-            mtu=self.safe_uplink_mtu,
-            logger=self.logger,
-            window_size=int(self.arq_window_size),
-            rto=float(self.arq_initial_rto),
-            max_rto=float(self.arq_max_rto),
-            enable_control_reliability=True,
-            control_rto=float(self.config.get("ARQ_CONTROL_INITIAL_RTO", 0.8)),
-            control_max_rto=float(self.config.get("ARQ_CONTROL_MAX_RTO", 2.5)),
-            control_max_retries=int(self.config.get("ARQ_CONTROL_MAX_RETRIES", 40)),
             is_socks=True,
             initial_data=b"",
         )
@@ -3083,24 +3111,10 @@ class MasterDnsVPNClient(PacketQueueMixin):
                 initial_payload = stream_data.get("initial_payload", b"")
                 wrapped_reader = PrependReader(raw_reader, initial_payload)
 
-                stream = ARQ(
+                stream = self._create_client_arq_stream(
                     stream_id=stream_id,
-                    session_id=self.session_id,
-                    enqueue_tx_cb=self._client_enqueue_tx,
-                    enqueue_control_tx_cb=self._client_enqueue_control_tx,
                     reader=wrapped_reader,
                     writer=writer,
-                    mtu=self.safe_uplink_mtu,
-                    logger=self.logger,
-                    window_size=int(self.arq_window_size),
-                    rto=float(self.arq_initial_rto),
-                    max_rto=float(self.arq_max_rto),
-                    enable_control_reliability=True,
-                    control_rto=float(self.config.get("ARQ_CONTROL_INITIAL_RTO", 0.8)),
-                    control_max_rto=float(self.config.get("ARQ_CONTROL_MAX_RTO", 2.5)),
-                    control_max_retries=int(
-                        self.config.get("ARQ_CONTROL_MAX_RETRIES", 40)
-                    ),
                 )
                 stream_data["stream"] = stream
                 stream_data.pop("socks_error_packet", None)

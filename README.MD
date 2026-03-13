@@ -16,7 +16,16 @@ The primary goal of **MasterDnsVPN** is to provide a secure, reliable, and flexi
 
 ---
 
-⭐ If you use or like this project, please consider supporting us by giving the repository a Star! ⭐
+You can support this project by starring the repository on GitHub, which helps increase its visibility and reach. If you find this project useful or interesting, please consider giving it a star! ⭐
+
+If you are interested in providing financial support, you can do so through the following channels:
+
+TON: `masterking32.ton`
+
+EVM-compatible blockchains: `0x517f07305D6ED781A089322B6cD93d1461bF8652`
+
+TRC20 chain: `TLApdY8APWkFHHoxebxGY8JhMeChiETqFH`
+
 
 ---
 

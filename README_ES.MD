@@ -15,7 +15,15 @@ Para las últimas noticias, actualizaciones y cambios relacionados con este proy
 
 ---
 
-⭐ ¡Si utilizas o te gusta este proyecto, por favor apóyanos dándole una estrella al repositorio! ⭐
+Si usás o te gusta este proyecto, por favor considerá apoyarnos dando una estrella al repositorio en GitHub. Esto ayuda a aumentar su visibilidad y alcance. ¡Si encontrás este proyecto útil o interesante, por favor considerá darle una estrella! ⭐
+
+Si estás interesado en brindar apoyo financiero, puedes hacerlo a través de los siguientes canales:
+
+TON: `masterking32.ton`
+
+Cadenas compatibles con EVM: `0x517f07305D6ED781A089322B6cD93d1461bF8652`
+
+Cadena TRC20: `TLApdY8APWkFHHoxebxGY8JhMeChiETqFH`
 
 ---
 

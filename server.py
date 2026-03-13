@@ -2247,8 +2247,17 @@ class MasterDnsVPNServer(PacketQueueMixin):
 
             if sys.platform == "win32":
                 try:
-                    SIO_UDP_CONNRESET = -1744830452
-                    self.udp_sock.ioctl(SIO_UDP_CONNRESET, False)
+                    sio_udp_connreset = getattr(socket, "SIO_UDP_CONNRESET", 0x9800000C)
+                    if hasattr(self.udp_sock, "ioctl"):
+                        self.udp_sock.ioctl(sio_udp_connreset, 0)
+                except OSError as e:
+                    msg = str(e).lower()
+                    if "invalid ioctl command" in msg or "not supported" in msg:
+                        self.logger.debug(
+                            "SIO_UDP_CONNRESET is not supported in this runtime; continuing without it."
+                        )
+                    else:
+                        self.logger.debug(f"Failed to set SIO_UDP_CONNRESET: {e}")
                 except Exception as e:
                     self.logger.debug(f"Failed to set SIO_UDP_CONNRESET: {e}")
 
