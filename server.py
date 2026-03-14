@@ -812,6 +812,16 @@ class MasterDnsVPNServer(PacketQueueMixin):
                 b"",
             )
             return True
+        if packet_type == Packet_Type.SOCKS5_SYN:
+            await self._enqueue_packet(
+                session_id,
+                0,
+                stream_id,
+                0,
+                Packet_Type.SOCKS5_CONNECT_FAIL,
+                b"",
+            )
+            return True
         if packet_type in (
             Packet_Type.STREAM_DATA,
             Packet_Type.STREAM_RESEND,
@@ -2597,6 +2607,16 @@ class MasterDnsVPNServer(PacketQueueMixin):
                 Packet_Type.STREAM_RST,
                 Packet_Type.STREAM_RST_ACK,
                 Packet_Type.STREAM_FIN_ACK,
+                Packet_Type.SOCKS5_CONNECT_FAIL,
+                Packet_Type.SOCKS5_RULESET_DENIED,
+                Packet_Type.SOCKS5_NETWORK_UNREACHABLE,
+                Packet_Type.SOCKS5_HOST_UNREACHABLE,
+                Packet_Type.SOCKS5_CONNECTION_REFUSED,
+                Packet_Type.SOCKS5_TTL_EXPIRED,
+                Packet_Type.SOCKS5_COMMAND_UNSUPPORTED,
+                Packet_Type.SOCKS5_ADDRESS_TYPE_UNSUPPORTED,
+                Packet_Type.SOCKS5_AUTH_FAILED,
+                Packet_Type.SOCKS5_UPSTREAM_UNAVAILABLE,
             ):
                 if not self._track_main_packet_once(
                     session, stream_id, ptype, sn, payload=data
