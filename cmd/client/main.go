@@ -8,8 +8,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"masterdnsvpn-go/internal/client"
 )
@@ -42,6 +45,12 @@ func main() {
 		len(cfg.Resolvers),
 	)
 	log.Infof(
+		"🧭 <green>Local DNS Listener</green> <magenta>|</magenta> <blue>Enabled</blue>: <yellow>%t</yellow> <magenta>|</magenta> <blue>Addr</blue>: <cyan>%s:%d</cyan>",
+		cfg.LocalDNSEnabled,
+		cfg.LocalDNSIP,
+		cfg.LocalDNSPort,
+	)
+	log.Infof(
 		"🗂️ <green>Connection Catalog</green> <magenta>|</magenta> <magenta>%d</magenta> <blue>domain-resolver pairs</blue>",
 		len(app.Connections()),
 	)
@@ -72,4 +81,16 @@ func main() {
 		app.SessionCookie(),
 	)
 	log.Infof("🎯 <green>Client Bootstrap Ready</green>")
+
+	if !cfg.LocalDNSEnabled {
+		return
+	}
+
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := app.RunLocalDNSListener(runCtx); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Local DNS listener failed: %v\n", err)
+		os.Exit(1)
+	}
 }

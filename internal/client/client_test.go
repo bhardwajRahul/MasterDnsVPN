@@ -218,3 +218,20 @@ func TestApplySessionCompressionPolicyKeepsLargeMTUDirections(t *testing.T) {
 		t.Fatalf("download compression should stay off, got=%d", c.downloadCompression)
 	}
 }
+
+func TestNewKeepsLocalDNSDefaults(t *testing.T) {
+	c := New(config.ClientConfig{
+		LocalDNSEnabled:   true,
+		LocalDNSIP:        "127.0.0.1",
+		LocalDNSPort:      5353,
+		LocalDNSWorkers:   2,
+		LocalDNSQueueSize: 512,
+	}, nil, nil)
+
+	if !c.cfg.LocalDNSEnabled {
+		t.Fatal("expected local dns listener to stay enabled in config")
+	}
+	if c.cfg.LocalDNSIP != "127.0.0.1" || c.cfg.LocalDNSPort != 5353 {
+		t.Fatalf("unexpected local dns bind config: %s:%d", c.cfg.LocalDNSIP, c.cfg.LocalDNSPort)
+	}
+}

@@ -13,6 +13,12 @@ PROTOCOL_TYPE = "SOCKS5"
 # Must match server DOMAIN values.
 DOMAINS = ["v.domain.com"]
 
+LOCAL_DNS_ENABLED = false
+LOCAL_DNS_IP = "127.0.0.1"
+LOCAL_DNS_PORT = 5353
+LOCAL_DNS_WORKERS = 2
+LOCAL_DNS_QUEUE_SIZE = 512
+
 # Resolver balancing strategy:
 # 0=Round Robin (default), 1=Random, 2=Round Robin, 3=Least Loss, 4=Lowest Latency
 RESOLVER_BALANCING_STRATEGY = 0

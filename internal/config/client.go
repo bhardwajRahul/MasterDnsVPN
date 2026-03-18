@@ -24,6 +24,11 @@ type ClientConfig struct {
 	ConfigPath                string            `toml:"-"`
 	ProtocolType              string            `toml:"PROTOCOL_TYPE"`
 	Domains                   []string          `toml:"DOMAINS"`
+	LocalDNSEnabled           bool              `toml:"LOCAL_DNS_ENABLED"`
+	LocalDNSIP                string            `toml:"LOCAL_DNS_IP"`
+	LocalDNSPort              int               `toml:"LOCAL_DNS_PORT"`
+	LocalDNSWorkers           int               `toml:"LOCAL_DNS_WORKERS"`
+	LocalDNSQueueSize         int               `toml:"LOCAL_DNS_QUEUE_SIZE"`
 	ResolverBalancingStrategy int               `toml:"RESOLVER_BALANCING_STRATEGY"`
 	BaseEncodeData            bool              `toml:"BASE_ENCODE_DATA"`
 	UploadCompressionType     int               `toml:"UPLOAD_COMPRESSION_TYPE"`
@@ -47,6 +52,11 @@ func defaultClientConfig() ClientConfig {
 	return ClientConfig{
 		ProtocolType:              "SOCKS5",
 		Domains:                   nil,
+		LocalDNSEnabled:           false,
+		LocalDNSIP:                "127.0.0.1",
+		LocalDNSPort:              5353,
+		LocalDNSWorkers:           2,
+		LocalDNSQueueSize:         512,
 		ResolverBalancingStrategy: 0,
 		BaseEncodeData:            false,
 		UploadCompressionType:     compression.TypeOff,
@@ -98,6 +108,19 @@ func LoadClientConfig(filename string) (ClientConfig, error) {
 
 	if cfg.DataEncryptionMethod < 0 || cfg.DataEncryptionMethod > 5 {
 		return cfg, fmt.Errorf("invalid DATA_ENCRYPTION_METHOD: %d", cfg.DataEncryptionMethod)
+	}
+	cfg.LocalDNSIP = strings.TrimSpace(cfg.LocalDNSIP)
+	if cfg.LocalDNSIP == "" {
+		cfg.LocalDNSIP = "127.0.0.1"
+	}
+	if cfg.LocalDNSPort < 0 || cfg.LocalDNSPort > 65535 {
+		return cfg, fmt.Errorf("invalid LOCAL_DNS_PORT: %d", cfg.LocalDNSPort)
+	}
+	if cfg.LocalDNSWorkers < 1 {
+		cfg.LocalDNSWorkers = 1
+	}
+	if cfg.LocalDNSQueueSize < 1 {
+		cfg.LocalDNSQueueSize = 512
 	}
 	if cfg.UploadCompressionType < compression.TypeOff || cfg.UploadCompressionType > compression.TypeZLIB {
 		return cfg, fmt.Errorf("invalid UPLOAD_COMPRESSION_TYPE: %d", cfg.UploadCompressionType)
