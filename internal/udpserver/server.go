@@ -79,6 +79,12 @@ type request struct {
 	addr *net.UDPAddr
 }
 
+type postSessionValidation struct {
+	record   *sessionRuntimeView
+	response []byte
+	ok       bool
+}
+
 func New(cfg config.ServerConfig, log *logger.Logger, codec *security.Codec) *Server {
 	invalidCookieWindow := cfg.InvalidCookieWindow()
 	return &Server{
@@ -323,6 +329,7 @@ func (s *Server) handlePacket(packet []byte) []byte {
 		if errors.Is(err, DnsParser.ErrNotDNSRequest) || errors.Is(err, DnsParser.ErrPacketTooShort) {
 			return nil
 		}
+
 		return buildNoDataResponse(packet)
 	}
 
@@ -348,53 +355,14 @@ func (s *Server) handleTunnelCandidate(packet []byte, parsed DnsParser.LitePacke
 		return buildNoDataResponseLite(packet, parsed)
 	}
 
-	var sessionRecord *sessionRecord
+	var sessionRecord *sessionRuntimeView
 	if !isPreSessionRequestType(vpnPacket.PacketType) {
-		now := time.Now()
-		validation := s.sessions.ValidateAndTouch(vpnPacket.SessionID, vpnPacket.SessionCookie, now)
-		sessionRecord = validation.Active
-		lookup := validation.Lookup
-		hasExpectedCookie := validation.Known
-		if !validation.Valid {
-			shouldEmit := s.invalidCookieTracker.Note(
-				vpnPacket.SessionID,
-				lookup,
-				hasExpectedCookie,
-				vpnPacket.SessionCookie,
-				now.UnixNano(),
-				s.invalidCookieWindowNanos,
-				s.invalidCookieThreshold,
-			)
-			if shouldEmit {
-				if hasExpectedCookie && lookup.State == sessionLookupClosed {
-					s.log.Warnf(
-						"🧷 <yellow>Stale Closed Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Expected</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
-						vpnPacket.SessionID,
-						lookup.Cookie,
-						vpnPacket.SessionCookie,
-					)
-				} else if hasExpectedCookie {
-					s.log.Warnf(
-						"🧷 <yellow>Invalid Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Expected</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
-						vpnPacket.SessionID,
-						lookup.Cookie,
-						vpnPacket.SessionCookie,
-					)
-				} else {
-					s.log.Warnf(
-						"🧷 <yellow>Unknown Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
-						vpnPacket.SessionID,
-						vpnPacket.SessionCookie,
-					)
-				}
-				if hasExpectedCookie {
-					if response := s.buildInvalidSessionErrorResponse(packet, decision.RequestName, vpnPacket.SessionID, lookup.ResponseMode); len(response) != 0 {
-						return response
-					}
-				}
-			}
-			return nil
+		validation := s.validatePostSessionPacket(packet, decision.RequestName, vpnPacket)
+		if !validation.ok {
+			return validation.response
 		}
+
+		sessionRecord = validation.record
 	}
 
 	switch vpnPacket.PacketType {
@@ -423,6 +391,66 @@ func (s *Server) handleTunnelCandidate(packet []byte, parsed DnsParser.LitePacke
 	default:
 		return buildNoDataResponseLite(packet, parsed)
 	}
+}
+
+func (s *Server) validatePostSessionPacket(questionPacket []byte, requestName string, vpnPacket VpnProto.Packet) postSessionValidation {
+	now := time.Now()
+	validation := s.sessions.ValidateAndTouch(vpnPacket.SessionID, vpnPacket.SessionCookie, now)
+	if validation.Valid {
+		return postSessionValidation{
+			record: validation.Active,
+			ok:     true,
+		}
+	}
+
+	if !s.invalidCookieTracker.Note(
+		vpnPacket.SessionID,
+		validation.Lookup,
+		validation.Known,
+		vpnPacket.SessionCookie,
+		now.UnixNano(),
+		s.invalidCookieWindowNanos,
+		s.invalidCookieThreshold,
+	) {
+		return postSessionValidation{}
+	}
+
+	s.logInvalidSessionThreshold(vpnPacket.SessionID, vpnPacket.SessionCookie, validation.Lookup, validation.Known)
+	if !validation.Known {
+		return postSessionValidation{}
+	}
+
+	return postSessionValidation{
+		response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, vpnPacket.SessionID, validation.Lookup.ResponseMode),
+	}
+}
+
+func (s *Server) logInvalidSessionThreshold(sessionID uint8, receivedCookie uint8, lookup sessionLookupResult, known bool) {
+	if !known {
+		s.log.Warnf(
+			"🧷 <yellow>Unknown Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
+			sessionID,
+			receivedCookie,
+		)
+		return
+	}
+
+	if lookup.State == sessionLookupClosed {
+		s.log.Warnf(
+			"🧷 <yellow>Stale Closed Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Expected</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
+			sessionID,
+			lookup.Cookie,
+			receivedCookie,
+		)
+		return
+	}
+
+	s.log.Warnf(
+		"🧷 <yellow>Invalid Session Cookie Threshold Reached</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Expected</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Received</blue>: <cyan>%d</cyan>",
+		sessionID,
+		lookup.Cookie,
+		receivedCookie,
+	)
 }
 
 func buildNoDataResponse(packet []byte) []byte {
@@ -461,7 +489,7 @@ func (s *Server) buildInvalidSessionErrorResponse(questionPacket []byte, request
 	return response
 }
 
-func (s *Server) buildSessionVPNResponse(questionPacket []byte, requestName string, record *sessionRecord, packet VpnProto.Packet) []byte {
+func (s *Server) buildSessionVPNResponse(questionPacket []byte, requestName string, record *sessionRuntimeView, packet VpnProto.Packet) []byte {
 	if record == nil {
 		return nil
 	}
@@ -626,7 +654,7 @@ func (s *Server) handleMTUDownRequest(questionPacket []byte, _ DnsParser.LitePac
 	return response
 }
 
-func (s *Server) handlePingRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handlePingRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if sessionRecord == nil {
 		return nil
 	}
@@ -649,7 +677,7 @@ func (s *Server) handlePingRequest(questionPacket []byte, decision domainMatcher
 	})
 }
 
-func (s *Server) handleDNSQueryRequest(questionPacket []byte, parsed DnsParser.LitePacket, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleDNSQueryRequest(questionPacket []byte, parsed DnsParser.LitePacket, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if sessionRecord == nil {
 		return nil
 	}
@@ -707,7 +735,7 @@ func (s *Server) handleDNSQueryRequest(questionPacket []byte, parsed DnsParser.L
 	})
 }
 
-func (s *Server) handleStreamSynRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleStreamSynRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}
@@ -763,7 +791,7 @@ func (s *Server) handleStreamSynRequest(questionPacket []byte, decision domainMa
 	})
 }
 
-func (s *Server) handleSOCKS5SynRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleSOCKS5SynRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}
@@ -909,7 +937,7 @@ func (s *Server) mapSOCKSConnectError(err error) uint8 {
 	}
 }
 
-func (s *Server) handleStreamDataRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleStreamDataRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}
@@ -972,7 +1000,7 @@ func (s *Server) handleStreamDataRequest(questionPacket []byte, decision domainM
 	}
 }
 
-func (s *Server) handleStreamFinRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleStreamFinRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}
@@ -1001,7 +1029,7 @@ func (s *Server) handleStreamFinRequest(questionPacket []byte, decision domainMa
 	})
 }
 
-func (s *Server) handleStreamRSTRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleStreamRSTRequest(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}
@@ -1018,7 +1046,7 @@ func (s *Server) handleStreamRSTRequest(questionPacket []byte, decision domainMa
 	})
 }
 
-func (s *Server) handleStreamAckPacket(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRecord) []byte {
+func (s *Server) handleStreamAckPacket(questionPacket []byte, decision domainMatcher.Decision, vpnPacket VpnProto.Packet, sessionRecord *sessionRuntimeView) []byte {
 	if !vpnPacket.HasStreamID || vpnPacket.StreamID == 0 || !vpnPacket.HasSequenceNum {
 		return nil
 	}

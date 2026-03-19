@@ -1139,7 +1139,7 @@ func TestSessionStoreCleanupMovesExpiredSessionToRecentClosed(t *testing.T) {
 	}
 
 	store.mu.Lock()
-	record.LastActivityAt = time.Now().Add(-2 * time.Minute)
+	record.setLastActivity(time.Now().Add(-2 * time.Minute))
 	expectedCookie := record.Cookie
 	store.mu.Unlock()
 
@@ -1171,7 +1171,7 @@ func TestSessionStoreTouchRefreshesActivity(t *testing.T) {
 		t.Fatalf("findOrCreate returned error: %v", err)
 	}
 
-	old := record.LastActivityAt
+	old := time.Unix(0, record.lastActivity())
 	time.Sleep(5 * time.Millisecond)
 	if !store.Touch(record.ID, time.Now()) {
 		t.Fatal("Touch returned false")
@@ -1195,7 +1195,7 @@ func TestSessionStoreValidateAndTouchRefreshesActivity(t *testing.T) {
 		t.Fatalf("findOrCreate returned error: %v", err)
 	}
 
-	old := record.LastActivityAt
+	old := time.Unix(0, record.lastActivity())
 	time.Sleep(5 * time.Millisecond)
 	result := store.ValidateAndTouch(record.ID, record.Cookie, time.Now())
 	if !result.Known || !result.Valid {

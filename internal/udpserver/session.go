@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"masterdnsvpn-go/internal/arq"
@@ -29,6 +30,30 @@ const (
 )
 
 type sessionRecord struct {
+	ID                   uint8
+	Cookie               uint8
+	ResponseMode         uint8
+	UploadCompression    uint8
+	DownloadCompression  uint8
+	UploadMTU            uint16
+	DownloadMTU          uint16
+	VerifyCode           [4]byte
+	Signature            [sessionInitDataSize]byte
+	MaxPackedBlocks      int
+	CreatedAt            time.Time
+	ReuseUntil           time.Time
+	lastActivityUnixNano int64
+}
+
+type sessionRuntimeView struct {
+	ID                  uint8
+	Cookie              uint8
+	ResponseMode        uint8
+	DownloadCompression uint8
+	DownloadMTU         uint16
+}
+
+type sessionSnapshot struct {
 	ID                  uint8
 	Cookie              uint8
 	ResponseMode        uint8
@@ -68,7 +93,7 @@ type sessionValidationResult struct {
 	Lookup sessionLookupResult
 	Known  bool
 	Valid  bool
-	Active *sessionRecord
+	Active *sessionRuntimeView
 }
 
 type sessionStore struct {
@@ -103,7 +128,7 @@ func (s *sessionStore) findOrCreate(payload []byte, uploadCompressionType uint8,
 	if sessionID, ok := s.bySig[signature]; ok {
 		if existing := s.byID[sessionID]; existing != nil {
 			if now.Before(existing.ReuseUntil) || now.Equal(existing.ReuseUntil) {
-				existing.LastActivityAt = now
+				existing.setLastActivity(now)
 				return existing, true, nil
 			}
 		}
@@ -116,13 +141,13 @@ func (s *sessionStore) findOrCreate(payload []byte, uploadCompressionType uint8,
 	}
 
 	record := &sessionRecord{
-		ID:             uint8(slot),
-		ResponseMode:   payload[0],
-		CreatedAt:      now,
-		LastActivityAt: now,
-		ReuseUntil:     now.Add(sessionInitTTL),
-		Signature:      signature,
+		ID:           uint8(slot),
+		ResponseMode: payload[0],
+		CreatedAt:    now,
+		ReuseUntil:   now.Add(sessionInitTTL),
+		Signature:    signature,
 	}
+	record.setLastActivity(now)
 	record.UploadCompression = compression.NormalizeType(uploadCompressionType)
 	record.DownloadCompression = compression.NormalizeType(downloadCompressionType)
 	record.UploadMTU = clampMTU(binary.BigEndian.Uint16(payload[2:4]))
@@ -155,11 +180,11 @@ func (s *sessionStore) Touch(sessionID uint8, now time.Time) bool {
 	if record == nil {
 		return false
 	}
-	record.LastActivityAt = now
+	record.setLastActivity(now)
 	return true
 }
 
-func (s *sessionStore) Active(sessionID uint8) (*sessionRecord, bool) {
+func (s *sessionStore) Active(sessionID uint8) (*sessionSnapshot, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -167,8 +192,8 @@ func (s *sessionStore) Active(sessionID uint8) (*sessionRecord, bool) {
 	if record == nil {
 		return nil, false
 	}
-	copyRecord := *record
-	return &copyRecord, true
+	snapshot := record.snapshot()
+	return &snapshot, true
 }
 
 func (s *sessionStore) Lookup(sessionID uint8) (sessionLookupResult, bool) {
@@ -202,8 +227,6 @@ func (s *sessionStore) ExpectedCookie(sessionID uint8) (uint8, bool) {
 
 func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.Time) sessionValidationResult {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if record := s.byID[sessionID]; record != nil {
 		result := sessionValidationResult{
 			Lookup: sessionLookupResult{
@@ -215,14 +238,18 @@ func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.
 			Valid: record.Cookie == cookie,
 		}
 		if result.Valid {
-			record.LastActivityAt = now
-			copyRecord := *record
-			result.Active = &copyRecord
+			view := record.runtimeView()
+			result.Active = &view
+		}
+		s.mu.Unlock()
+		if result.Valid {
+			record.setLastActivity(now)
 		}
 		return result
 	}
 
 	if record, ok := s.recentClosed[sessionID]; ok {
+		s.mu.Unlock()
 		return sessionValidationResult{
 			Lookup: sessionLookupResult{
 				Cookie:       record.Cookie,
@@ -234,6 +261,7 @@ func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.
 		}
 	}
 
+	s.mu.Unlock()
 	return sessionValidationResult{}
 }
 
@@ -277,11 +305,14 @@ func (s *sessionStore) Cleanup(now time.Time, idleTimeout time.Duration, closedR
 	}
 
 	expired := make([]uint8, 0, 8)
+	idleTimeoutNanos := idleTimeout.Nanoseconds()
+	nowUnixNano := now.UnixNano()
 	for sessionID, record := range s.byID {
 		if record == nil {
 			continue
 		}
-		if now.Sub(record.LastActivityAt) < idleTimeout {
+		lastActivityUnixNano := record.lastActivity()
+		if lastActivityUnixNano != 0 && nowUnixNano-lastActivityUnixNano < idleTimeoutNanos {
 			continue
 		}
 
@@ -330,4 +361,46 @@ func clampMTU(value uint16) uint16 {
 
 func isValidSessionResponseMode(value uint8) bool {
 	return value == mtuProbeModeRaw || value == mtuProbeModeBase64
+}
+
+func (r *sessionRecord) setLastActivity(now time.Time) {
+	atomic.StoreInt64(&r.lastActivityUnixNano, now.UnixNano())
+}
+
+func (r *sessionRecord) lastActivity() int64 {
+	return atomic.LoadInt64(&r.lastActivityUnixNano)
+}
+
+func (r *sessionRecord) runtimeView() sessionRuntimeView {
+	return sessionRuntimeView{
+		ID:                  r.ID,
+		Cookie:              r.Cookie,
+		ResponseMode:        r.ResponseMode,
+		DownloadCompression: r.DownloadCompression,
+		DownloadMTU:         r.DownloadMTU,
+	}
+}
+
+func (r *sessionRecord) snapshot() sessionSnapshot {
+	lastActivityUnixNano := r.lastActivity()
+	lastActivityAt := time.Time{}
+	if lastActivityUnixNano != 0 {
+		lastActivityAt = time.Unix(0, lastActivityUnixNano)
+	}
+
+	return sessionSnapshot{
+		ID:                  r.ID,
+		Cookie:              r.Cookie,
+		ResponseMode:        r.ResponseMode,
+		UploadCompression:   r.UploadCompression,
+		DownloadCompression: r.DownloadCompression,
+		UploadMTU:           r.UploadMTU,
+		DownloadMTU:         r.DownloadMTU,
+		VerifyCode:          r.VerifyCode,
+		Signature:           r.Signature,
+		MaxPackedBlocks:     r.MaxPackedBlocks,
+		CreatedAt:           r.CreatedAt,
+		LastActivityAt:      lastActivityAt,
+		ReuseUntil:          r.ReuseUntil,
+	}
 }
