@@ -165,143 +165,98 @@ func LoadClientConfig(filename string) (ClientConfig, error) {
 	if cfg.DataEncryptionMethod < 0 || cfg.DataEncryptionMethod > 5 {
 		return cfg, fmt.Errorf("invalid DATA_ENCRYPTION_METHOD: %d", cfg.DataEncryptionMethod)
 	}
-	cfg.ListenIP = strings.TrimSpace(cfg.ListenIP)
-	if cfg.ListenIP == "" {
-		cfg.ListenIP = "127.0.0.1"
-	}
+
+	cfg.ListenIP = defaultString(strings.TrimSpace(cfg.ListenIP), "127.0.0.1")
+
 	if cfg.ListenPort < 0 || cfg.ListenPort > 65535 {
 		return cfg, fmt.Errorf("invalid LISTEN_PORT: %d", cfg.ListenPort)
 	}
-	cfg.LocalSOCKS5IP = strings.TrimSpace(cfg.LocalSOCKS5IP)
-	if cfg.LocalSOCKS5IP == "" {
-		cfg.LocalSOCKS5IP = "127.0.0.1"
-	}
+
+	cfg.LocalSOCKS5IP = defaultString(strings.TrimSpace(cfg.LocalSOCKS5IP), "127.0.0.1")
+
 	if cfg.LocalSOCKS5Port < 0 || cfg.LocalSOCKS5Port > 65535 {
 		return cfg, fmt.Errorf("invalid LOCAL_SOCKS5_PORT: %d", cfg.LocalSOCKS5Port)
 	}
-	if cfg.ProtocolType == "SOCKS5" {
+
+	switch cfg.ProtocolType {
+	case "SOCKS5":
 		if !cfg.LocalSOCKS5Enabled {
 			cfg.LocalSOCKS5IP = cfg.ListenIP
 			cfg.LocalSOCKS5Port = cfg.ListenPort
 		}
-	} else if cfg.ProtocolType == "TCP" {
+	case "TCP":
 		cfg.LocalSOCKS5Enabled = false
 	}
-	if cfg.LocalSOCKS5HandshakeSec <= 0 {
-		cfg.LocalSOCKS5HandshakeSec = 10.0
-	}
+
+	cfg.LocalSOCKS5HandshakeSec = defaultFloatAtMostZero(cfg.LocalSOCKS5HandshakeSec, 10.0)
+
 	if len(cfg.SOCKS5User) > 255 {
 		return cfg, fmt.Errorf("SOCKS5_USER cannot exceed 255 bytes")
 	}
+
 	if len(cfg.SOCKS5Pass) > 255 {
 		return cfg, fmt.Errorf("SOCKS5_PASS cannot exceed 255 bytes")
 	}
+
 	if cfg.SOCKS5Auth && (cfg.SOCKS5User == "" || cfg.SOCKS5Pass == "") {
 		return cfg, fmt.Errorf("SOCKS5_AUTH requires both SOCKS5_USER and SOCKS5_PASS")
 	}
-	cfg.LocalDNSIP = strings.TrimSpace(cfg.LocalDNSIP)
-	if cfg.LocalDNSIP == "" {
-		cfg.LocalDNSIP = "127.0.0.1"
-	}
+
+	cfg.LocalDNSIP = defaultString(strings.TrimSpace(cfg.LocalDNSIP), "127.0.0.1")
+
 	if cfg.LocalDNSPort < 0 || cfg.LocalDNSPort > 65535 {
 		return cfg, fmt.Errorf("invalid LOCAL_DNS_PORT: %d", cfg.LocalDNSPort)
 	}
-	if cfg.LocalDNSWorkers < 1 {
-		cfg.LocalDNSWorkers = 1
-	}
-	if cfg.LocalDNSQueueSize < 1 {
-		cfg.LocalDNSQueueSize = 512
-	}
-	if cfg.LocalDNSCacheMaxRecords < 1 {
-		cfg.LocalDNSCacheMaxRecords = 2000
-	}
-	if cfg.LocalDNSCacheTTLSeconds <= 0 {
-		cfg.LocalDNSCacheTTLSeconds = 3600.0
-	}
-	if cfg.LocalDNSPendingTimeoutSec <= 0 {
-		cfg.LocalDNSPendingTimeoutSec = 600.0
-	}
-	if cfg.LocalDNSFragmentTimeoutSec <= 0 {
-		cfg.LocalDNSFragmentTimeoutSec = 300.0
-	}
-	if cfg.LocalDNSCacheFlushSec <= 0 {
-		cfg.LocalDNSCacheFlushSec = 60.0
-	}
-	if cfg.MaxPacketsPerBatch < 1 {
-		cfg.MaxPacketsPerBatch = 5
-	}
-	if cfg.StreamTXWindow < 1 {
-		cfg.StreamTXWindow = 4
-	}
-	if cfg.StreamTXWindow > 32 {
-		cfg.StreamTXWindow = 32
-	}
-	if cfg.StreamTXQueueLimit < 1 {
-		cfg.StreamTXQueueLimit = 128
-	}
-	if cfg.StreamTXQueueLimit > 4096 {
-		cfg.StreamTXQueueLimit = 4096
-	}
-	if cfg.StreamTXMaxRetries < 1 {
-		cfg.StreamTXMaxRetries = 24
-	}
-	if cfg.StreamTXMaxRetries > 512 {
-		cfg.StreamTXMaxRetries = 512
-	}
-	if cfg.StreamTXTTLSeconds <= 0 {
-		cfg.StreamTXTTLSeconds = 120.0
-	}
+
+	cfg.LocalDNSWorkers = defaultIntBelow(cfg.LocalDNSWorkers, 1, 1)
+	cfg.LocalDNSQueueSize = defaultIntBelow(cfg.LocalDNSQueueSize, 1, 512)
+	cfg.LocalDNSCacheMaxRecords = defaultIntBelow(cfg.LocalDNSCacheMaxRecords, 1, 2000)
+	cfg.LocalDNSCacheTTLSeconds = defaultFloatAtMostZero(cfg.LocalDNSCacheTTLSeconds, 3600.0)
+	cfg.LocalDNSPendingTimeoutSec = defaultFloatAtMostZero(cfg.LocalDNSPendingTimeoutSec, 600.0)
+	cfg.LocalDNSFragmentTimeoutSec = defaultFloatAtMostZero(cfg.LocalDNSFragmentTimeoutSec, 300.0)
+	cfg.LocalDNSCacheFlushSec = defaultFloatAtMostZero(cfg.LocalDNSCacheFlushSec, 60.0)
+	cfg.MaxPacketsPerBatch = defaultIntBelow(cfg.MaxPacketsPerBatch, 1, 5)
+	cfg.StreamTXWindow = clampInt(defaultIntBelow(cfg.StreamTXWindow, 1, 4), 1, 32)
+	cfg.StreamTXQueueLimit = clampInt(defaultIntBelow(cfg.StreamTXQueueLimit, 1, 128), 1, 4096)
+	cfg.StreamTXMaxRetries = clampInt(defaultIntBelow(cfg.StreamTXMaxRetries, 1, 24), 1, 512)
+	cfg.StreamTXTTLSeconds = defaultFloatAtMostZero(cfg.StreamTXTTLSeconds, 120.0)
+
 	if cfg.UploadCompressionType < compression.TypeOff || cfg.UploadCompressionType > compression.TypeZLIB {
 		return cfg, fmt.Errorf("invalid UPLOAD_COMPRESSION_TYPE: %d", cfg.UploadCompressionType)
 	}
+
 	if cfg.DownloadCompressionType < compression.TypeOff || cfg.DownloadCompressionType > compression.TypeZLIB {
 		return cfg, fmt.Errorf("invalid DOWNLOAD_COMPRESSION_TYPE: %d", cfg.DownloadCompressionType)
 	}
-	if cfg.CompressionMinSize <= 0 {
-		cfg.CompressionMinSize = compression.DefaultMinSize
-	}
+
+	cfg.CompressionMinSize = defaultIntBelow(cfg.CompressionMinSize, 1, compression.DefaultMinSize)
+
 	if cfg.ResolverBalancingStrategy < 0 || cfg.ResolverBalancingStrategy > 4 {
 		return cfg, fmt.Errorf("invalid RESOLVER_BALANCING_STRATEGY: %d", cfg.ResolverBalancingStrategy)
 	}
-	if cfg.AutoDisableTimeoutWindow <= 0 {
-		cfg.AutoDisableTimeoutWindow = 300.0
-	}
-	if cfg.AutoDisableMinObservations < 1 {
-		cfg.AutoDisableMinObservations = 3
-	}
-	if cfg.AutoDisableCheckInterval < 0.5 {
-		cfg.AutoDisableCheckInterval = 1.0
-	}
-	if cfg.RecheckInactiveInterval < 60.0 {
-		cfg.RecheckInactiveInterval = 1800.0
-	}
-	if cfg.RecheckServerInterval < 1.0 {
-		cfg.RecheckServerInterval = 3.0
-	}
-	if cfg.RecheckBatchSize < 1 {
-		cfg.RecheckBatchSize = 1
-	}
-	if cfg.RecheckBatchSize > 64 {
-		cfg.RecheckBatchSize = 64
-	}
+
+	cfg.AutoDisableTimeoutWindow = defaultFloatAtMostZero(cfg.AutoDisableTimeoutWindow, 300.0)
+	cfg.AutoDisableMinObservations = defaultIntBelow(cfg.AutoDisableMinObservations, 1, 3)
+	cfg.AutoDisableCheckInterval = defaultFloatBelow(cfg.AutoDisableCheckInterval, 0.5, 1.0)
+	cfg.RecheckInactiveInterval = defaultFloatBelow(cfg.RecheckInactiveInterval, 60.0, 1800.0)
+	cfg.RecheckServerInterval = defaultFloatBelow(cfg.RecheckServerInterval, 1.0, 3.0)
+	cfg.RecheckBatchSize = clampInt(defaultIntBelow(cfg.RecheckBatchSize, 1, 1), 1, 64)
+
 	if cfg.MinUploadMTU < 0 || cfg.MinDownloadMTU < 0 || cfg.MaxUploadMTU < 0 || cfg.MaxDownloadMTU < 0 {
 		return cfg, fmt.Errorf("mtu values cannot be negative")
 	}
+
 	if cfg.MaxUploadMTU > 0 && cfg.MinUploadMTU > cfg.MaxUploadMTU {
 		return cfg, fmt.Errorf("MIN_UPLOAD_MTU cannot be greater than MAX_UPLOAD_MTU")
 	}
+
 	if cfg.MaxDownloadMTU > 0 && cfg.MinDownloadMTU > cfg.MaxDownloadMTU {
 		return cfg, fmt.Errorf("MIN_DOWNLOAD_MTU cannot be greater than MAX_DOWNLOAD_MTU")
 	}
-	if cfg.MTUTestRetries < 1 {
-		cfg.MTUTestRetries = 1
-	}
-	if cfg.MTUTestTimeout <= 0 {
-		cfg.MTUTestTimeout = 1.0
-	}
-	if cfg.MTUTestParallelism < 1 {
-		cfg.MTUTestParallelism = 1
-	}
+
+	cfg.MTUTestRetries = defaultIntBelow(cfg.MTUTestRetries, 1, 1)
+	cfg.MTUTestTimeout = defaultFloatAtMostZero(cfg.MTUTestTimeout, 1.0)
+	cfg.MTUTestParallelism = defaultIntBelow(cfg.MTUTestParallelism, 1, 1)
 
 	cfg.EncryptionKey = strings.TrimSpace(cfg.EncryptionKey)
 	if cfg.EncryptionKey == "" {
@@ -361,4 +316,42 @@ func normalizeClientDomains(domains []string) []string {
 	})
 
 	return normalized
+}
+
+func defaultString(value string, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func defaultIntBelow(value int, minValue int, fallback int) int {
+	if value < minValue {
+		return fallback
+	}
+	return value
+}
+
+func clampInt(value int, minValue int, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func defaultFloatAtMostZero(value float64, fallback float64) float64 {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func defaultFloatBelow(value float64, minValue float64, fallback float64) float64 {
+	if value < minValue {
+		return fallback
+	}
+	return value
 }

@@ -19,8 +19,8 @@ import (
 	"masterdnsvpn-go/internal/arq"
 	"masterdnsvpn-go/internal/compression"
 	"masterdnsvpn-go/internal/config"
-	"masterdnsvpn-go/internal/dnscache"
-	"masterdnsvpn-go/internal/fragmentstore"
+	dnsCache "masterdnsvpn-go/internal/dnscache"
+	fragmentStore "masterdnsvpn-go/internal/fragmentstore"
 	"masterdnsvpn-go/internal/logger"
 	"masterdnsvpn-go/internal/security"
 )
@@ -34,8 +34,8 @@ type Client struct {
 
 	connections            []Connection
 	connectionsByKey       map[string]int
-	localDNSCache          *dnscache.Store
-	dnsResponses           *fragmentstore.Store[clientDNSFragmentKey]
+	localDNSCache          *dnsCache.Store
+	dnsResponses           *fragmentStore.Store[clientDNSFragmentKey]
 	localDNSFragTTL        time.Duration
 	localDNSCacheLoadOnce  sync.Once
 	localDNSCacheFlushOnce sync.Once
@@ -125,7 +125,7 @@ func Bootstrap(configPath string) (*Client, error) {
 		return nil, err
 	}
 
-	log := logger.New("MasterDnsVPN Go Client", cfg.LogLevel)
+	log := logger.New("MasterDnsVPN Client", cfg.LogLevel)
 	codec, err := security.NewCodec(cfg.DataEncryptionMethod, cfg.EncryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("client codec setup failed: %w", err)
@@ -145,12 +145,12 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		balancer:         NewBalancer(cfg.ResolverBalancingStrategy),
 		connectionsByKey: make(map[string]int, len(cfg.Domains)*len(cfg.Resolvers)),
 		now:              time.Now,
-		localDNSCache: dnscache.New(
+		localDNSCache: dnsCache.New(
 			cfg.LocalDNSCacheMaxRecords,
 			time.Duration(cfg.LocalDNSCacheTTLSeconds*float64(time.Second)),
 			time.Duration(cfg.LocalDNSPendingTimeoutSec*float64(time.Second)),
 		),
-		dnsResponses:       fragmentstore.New[clientDNSFragmentKey](32),
+		dnsResponses:       fragmentStore.New[clientDNSFragmentKey](32),
 		localDNSFragTTL:    time.Duration(cfg.LocalDNSFragmentTimeoutSec * float64(time.Second)),
 		streams:            make(map[uint16]*clientStream, 16),
 		streamTXWindow:     cfg.StreamTXWindow,
@@ -188,7 +188,7 @@ func (c *Client) Balancer() *Balancer {
 	return c.balancer
 }
 
-func (c *Client) LocalDNSCache() *dnscache.Store {
+func (c *Client) LocalDNSCache() *dnsCache.Store {
 	return c.localDNSCache
 }
 
@@ -239,7 +239,7 @@ func (c *Client) ResetRuntimeState(resetSessionCookie bool) {
 	c.responseMode = 0
 	c.maxPackedBlocks = 1
 	c.fragmentLimits = sync.Map{}
-	c.dnsResponses = fragmentstore.New[clientDNSFragmentKey](32)
+	c.dnsResponses = fragmentStore.New[clientDNSFragmentKey](32)
 	c.streamsMu.Lock()
 	c.streams = make(map[uint16]*clientStream, 16)
 	c.streamsMu.Unlock()
