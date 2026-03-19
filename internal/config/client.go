@@ -45,6 +45,8 @@ type ClientConfig struct {
 	MaxPacketsPerBatch        int               `toml:"MAX_PACKETS_PER_BATCH"`
 	StreamTXWindow            int               `toml:"STREAM_TX_WINDOW"`
 	StreamTXQueueLimit        int               `toml:"STREAM_TX_QUEUE_LIMIT"`
+	StreamTXMaxRetries        int               `toml:"STREAM_TX_MAX_RETRIES"`
+	StreamTXTTLSeconds        float64           `toml:"STREAM_TX_TTL_SECONDS"`
 	BaseEncodeData            bool              `toml:"BASE_ENCODE_DATA"`
 	UploadCompressionType     int               `toml:"UPLOAD_COMPRESSION_TYPE"`
 	DownloadCompressionType   int               `toml:"DOWNLOAD_COMPRESSION_TYPE"`
@@ -88,6 +90,8 @@ func defaultClientConfig() ClientConfig {
 		MaxPacketsPerBatch:        5,
 		StreamTXWindow:            4,
 		StreamTXQueueLimit:        128,
+		StreamTXMaxRetries:        24,
+		StreamTXTTLSeconds:        120.0,
 		BaseEncodeData:            false,
 		UploadCompressionType:     compression.TypeOff,
 		DownloadCompressionType:   compression.TypeOff,
@@ -197,6 +201,15 @@ func LoadClientConfig(filename string) (ClientConfig, error) {
 	}
 	if cfg.StreamTXQueueLimit > 4096 {
 		cfg.StreamTXQueueLimit = 4096
+	}
+	if cfg.StreamTXMaxRetries < 1 {
+		cfg.StreamTXMaxRetries = 24
+	}
+	if cfg.StreamTXMaxRetries > 512 {
+		cfg.StreamTXMaxRetries = 512
+	}
+	if cfg.StreamTXTTLSeconds <= 0 {
+		cfg.StreamTXTTLSeconds = 120.0
 	}
 	if cfg.UploadCompressionType < compression.TypeOff || cfg.UploadCompressionType > compression.TypeZLIB {
 		return cfg, fmt.Errorf("invalid UPLOAD_COMPRESSION_TYPE: %d", cfg.UploadCompressionType)

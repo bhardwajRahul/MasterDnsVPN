@@ -43,6 +43,8 @@ MAX_PACKETS_PER_BATCH = 5
 # Maximum in-flight data packets per stream on client side.
 STREAM_TX_WINDOW = 4
 STREAM_TX_QUEUE_LIMIT = 128
+STREAM_TX_MAX_RETRIES = 24
+STREAM_TX_TTL_SECONDS = 120.0
 
 # If true, MTU test responses request Base64 TXT payloads from server.
 # If false, server returns raw byte TXT payloads.

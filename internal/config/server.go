@@ -38,6 +38,8 @@ type ServerConfig struct {
 	MaxPacketsPerBatch                int      `toml:"MAX_PACKETS_PER_BATCH"`
 	StreamOutboundWindow              int      `toml:"STREAM_OUTBOUND_WINDOW"`
 	StreamOutboundQueueLimit          int      `toml:"STREAM_OUTBOUND_QUEUE_LIMIT"`
+	StreamOutboundMaxRetries          int      `toml:"STREAM_OUTBOUND_MAX_RETRIES"`
+	StreamOutboundTTLSeconds          float64  `toml:"STREAM_OUTBOUND_TTL_SECONDS"`
 	DNSUpstreamServers                []string `toml:"DNS_UPSTREAM_SERVERS"`
 	DNSUpstreamTimeoutSecs            float64  `toml:"DNS_UPSTREAM_TIMEOUT"`
 	SOCKSConnectTimeoutSecs           float64  `toml:"SOCKS_CONNECT_TIMEOUT"`
@@ -75,6 +77,8 @@ func defaultServerConfig() ServerConfig {
 		MaxPacketsPerBatch:                20,
 		StreamOutboundWindow:              4,
 		StreamOutboundQueueLimit:          256,
+		StreamOutboundMaxRetries:          24,
+		StreamOutboundTTLSeconds:          120.0,
 		DNSUpstreamServers:                []string{"1.1.1.1:53"},
 		DNSUpstreamTimeoutSecs:            4.0,
 		SOCKSConnectTimeoutSecs:           8.0,
@@ -170,6 +174,15 @@ func LoadServerConfig(filename string) (ServerConfig, error) {
 	if cfg.StreamOutboundQueueLimit > 8192 {
 		cfg.StreamOutboundQueueLimit = 8192
 	}
+	if cfg.StreamOutboundMaxRetries < 1 {
+		cfg.StreamOutboundMaxRetries = 24
+	}
+	if cfg.StreamOutboundMaxRetries > 512 {
+		cfg.StreamOutboundMaxRetries = 512
+	}
+	if cfg.StreamOutboundTTLSeconds <= 0 {
+		cfg.StreamOutboundTTLSeconds = 120.0
+	}
 	if len(cfg.DNSUpstreamServers) == 0 {
 		cfg.DNSUpstreamServers = []string{"1.1.1.1:53"}
 	}
@@ -244,6 +257,10 @@ func (c ServerConfig) SOCKSConnectTimeout() time.Duration {
 
 func (c ServerConfig) DNSFragmentAssemblyTimeout() time.Duration {
 	return time.Duration(c.DNSFragmentAssemblyTimeoutSecs * float64(time.Second))
+}
+
+func (c ServerConfig) StreamOutboundTTL() time.Duration {
+	return time.Duration(c.StreamOutboundTTLSeconds * float64(time.Second))
 }
 
 func (c ServerConfig) EncryptionKeyPath() string {

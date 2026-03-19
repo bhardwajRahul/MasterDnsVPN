@@ -235,6 +235,7 @@ func (c *Client) queueStreamPacket(stream *clientStream, packetType uint8, paylo
 		PacketType:  packetType,
 		SequenceNum: sequenceNum,
 		Payload:     append([]byte(nil), payload...),
+		CreatedAt:   stream.LastActivityAt,
 		RetryDelay:  streamTXInitialRetryDelay,
 	}
 	if packetType == Enums.PACKET_STREAM_RST {
@@ -270,6 +271,13 @@ func (c *Client) runClientStreamTXLoop(stream *clientStream, timeout time.Durati
 	}
 
 	for {
+		if c.expireClientStreamTX(stream, time.Now()) {
+			if streamFinished(stream) {
+				c.deleteStream(stream.ID)
+				return
+			}
+			continue
+		}
 		packet, waitFor, shouldStop := nextClientStreamTX(stream, c.effectiveStreamTXWindow())
 		if shouldStop {
 			return
@@ -392,6 +400,7 @@ func rescheduleClientStreamTX(stream *clientStream, sequenceNum uint16) {
 		}
 		stream.TXInFlight[idx].Scheduled = false
 		stream.TXInFlight[idx].RetryAt = time.Now().Add(delay)
+		stream.TXInFlight[idx].RetryCount++
 		delay *= 2
 		if delay > streamTXMaxRetryDelay {
 			delay = streamTXMaxRetryDelay
@@ -572,6 +581,23 @@ func (c *Client) effectiveStreamTXQueueLimit() int {
 	return c.streamTXQueueLimit
 }
 
+func (c *Client) effectiveStreamTXMaxRetries() int {
+	if c == nil || c.streamTXMaxRetries < 1 {
+		return 24
+	}
+	if c.streamTXMaxRetries > 512 {
+		return 512
+	}
+	return c.streamTXMaxRetries
+}
+
+func (c *Client) effectiveStreamTXTTL() time.Duration {
+	if c == nil || c.streamTXTTL <= 0 {
+		return 120 * time.Second
+	}
+	return c.streamTXTTL
+}
+
 func clearClientStreamDataLocked(stream *clientStream) {
 	if stream == nil {
 		return
@@ -600,4 +626,50 @@ func clearClientStreamDataLocked(stream *clientStream) {
 		}
 		stream.TXInFlight = filteredInFlight
 	}
+}
+
+func (c *Client) expireClientStreamTX(stream *clientStream, now time.Time) bool {
+	if c == nil || stream == nil {
+		return false
+	}
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	if stream.Closed || len(stream.TXInFlight) == 0 {
+		return false
+	}
+
+	maxRetries := c.effectiveStreamTXMaxRetries()
+	ttl := c.effectiveStreamTXTTL()
+	for _, packet := range stream.TXInFlight {
+		if packet.RetryCount < maxRetries && now.Sub(packet.CreatedAt) < ttl {
+			continue
+		}
+
+		if packet.PacketType == Enums.PACKET_STREAM_RST || stream.ResetSent {
+			stream.Closed = true
+			clearClientStreamDataLocked(stream)
+			return true
+		}
+
+		stream.ResetSent = true
+		clearClientStreamDataLocked(stream)
+		stream.NextSequence++
+		if stream.NextSequence == 0 {
+			stream.NextSequence = 1
+		}
+		stream.TXQueue = append(stream.TXQueue, clientStreamTXPacket{})
+		copy(stream.TXQueue[1:], stream.TXQueue[:len(stream.TXQueue)-1])
+		stream.TXQueue[0] = clientStreamTXPacket{
+			PacketType:  Enums.PACKET_STREAM_RST,
+			SequenceNum: stream.NextSequence,
+			CreatedAt:   now,
+			RetryDelay:  streamTXInitialRetryDelay,
+		}
+		notifyStreamWake(stream)
+		return true
+	}
+
+	return false
 }

@@ -607,6 +607,40 @@ func TestStreamOutboundStoreDropsOnlyDataWhenQueueLimitReached(t *testing.T) {
 	}
 }
 
+func TestStreamOutboundStoreExpiresStalledPendingPackets(t *testing.T) {
+	store := newStreamOutboundStore(1, 8)
+	now := time.Now()
+
+	if !store.Enqueue(9, VpnProto.Packet{
+		PacketType:  Enums.PACKET_STREAM_DATA,
+		StreamID:    21,
+		SequenceNum: 1,
+		Payload:     []byte("one"),
+	}) {
+		t.Fatal("expected enqueue to succeed")
+	}
+	if _, ok := store.Next(9, now); !ok {
+		t.Fatal("expected first pending packet")
+	}
+
+	store.mu.Lock()
+	if len(store.sessions[9].pending) != 1 {
+		store.mu.Unlock()
+		t.Fatalf("expected one pending packet, got=%d", len(store.sessions[9].pending))
+	}
+	store.sessions[9].pending[0].RetryCount = 2
+	store.sessions[9].pending[0].CreatedAt = now.Add(-2 * time.Second)
+	store.mu.Unlock()
+
+	expired := store.ExpireStalled(9, now, 2, time.Second)
+	if len(expired) != 1 || expired[0] != 21 {
+		t.Fatalf("unexpected expired streams: %+v", expired)
+	}
+	if _, ok := store.Next(9, now); ok {
+		t.Fatal("expected expired pending packet to be pruned")
+	}
+}
+
 func TestHandlePacketRespondsToStreamLifecyclePackets(t *testing.T) {
 	codec, err := security.NewCodec(0, "")
 	if err != nil {

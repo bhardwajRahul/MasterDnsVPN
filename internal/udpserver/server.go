@@ -622,6 +622,7 @@ func (s *Server) handlePingRequest(questionPacket []byte, decision domainmatcher
 		return nil
 	}
 	now := time.Now()
+	s.expireStalledOutboundStreams(vpnPacket.SessionID, now)
 	if queued, ok := s.streamOutbound.Next(vpnPacket.SessionID, now); ok {
 		return s.buildSessionVPNResponse(questionPacket, decision.RequestName, sessionRecord, queued)
 	}
@@ -988,6 +989,7 @@ func (s *Server) handleStreamAckPacket(questionPacket []byte, decision domainmat
 		_, _ = s.streams.Touch(vpnPacket.SessionID, vpnPacket.StreamID, vpnPacket.SequenceNum, now)
 		s.streamOutbound.Ack(vpnPacket.SessionID, vpnPacket.PacketType, vpnPacket.StreamID, vpnPacket.SequenceNum)
 	}
+	s.expireStalledOutboundStreams(vpnPacket.SessionID, now)
 	if queued, ok := s.streamOutbound.Next(vpnPacket.SessionID, now); ok {
 		return s.buildSessionVPNResponse(questionPacket, decision.RequestName, sessionRecord, queued)
 	}
@@ -995,4 +997,30 @@ func (s *Server) handleStreamAckPacket(questionPacket []byte, decision domainmat
 		PacketType: Enums.PACKET_PONG,
 		Payload:    []byte("PO:ack"),
 	})
+}
+
+func (s *Server) expireStalledOutboundStreams(sessionID uint8, now time.Time) {
+	if s == nil {
+		return
+	}
+	expired := s.streamOutbound.ExpireStalled(sessionID, now, s.cfg.StreamOutboundMaxRetries, s.cfg.StreamOutboundTTL())
+	for _, streamID := range expired {
+		sequenceNum, ok := s.streams.NextOutboundSequence(sessionID, streamID, now)
+		if !ok {
+			continue
+		}
+		_ = s.streams.MarkReset(sessionID, streamID, sequenceNum, now)
+		_ = s.streamOutbound.Enqueue(sessionID, VpnProto.Packet{
+			PacketType:  Enums.PACKET_STREAM_RST,
+			StreamID:    streamID,
+			SequenceNum: sequenceNum,
+		})
+		if s.log != nil {
+			s.log.Warnf(
+				"🚧 <yellow>Stream ARQ Retry Budget Exhausted</yellow> <magenta>|</magenta> <blue>Session</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Stream</blue>: <cyan>%d</cyan>",
+				sessionID,
+				streamID,
+			)
+		}
+	}
 }

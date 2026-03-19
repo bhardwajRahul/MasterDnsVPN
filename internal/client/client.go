@@ -57,6 +57,8 @@ type Client struct {
 	streams            map[uint16]*clientStream
 	streamTXWindow     int
 	streamTXQueueLimit int
+	streamTXMaxRetries int
+	streamTXTTL        time.Duration
 }
 
 type Connection struct {
@@ -95,8 +97,10 @@ type clientStreamTXPacket struct {
 	PacketType  uint8
 	SequenceNum uint16
 	Payload     []byte
+	CreatedAt   time.Time
 	RetryDelay  time.Duration
 	RetryAt     time.Time
+	RetryCount  int
 	Scheduled   bool
 }
 
@@ -136,6 +140,8 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		streams:            make(map[uint16]*clientStream, 16),
 		streamTXWindow:     cfg.StreamTXWindow,
 		streamTXQueueLimit: cfg.StreamTXQueueLimit,
+		streamTXMaxRetries: cfg.StreamTXMaxRetries,
+		streamTXTTL:        time.Duration(cfg.StreamTXTTLSeconds * float64(time.Second)),
 	}
 	c.ResetRuntimeState(true)
 	c.uploadCompression = uint8(cfg.UploadCompressionType)

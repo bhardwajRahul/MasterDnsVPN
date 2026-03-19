@@ -27,8 +27,10 @@ type streamOutboundStore struct {
 
 type outboundPendingPacket struct {
 	Packet     VpnProto.Packet
+	CreatedAt  time.Time
 	RetryAt    time.Time
 	RetryDelay time.Duration
+	RetryCount int
 }
 
 type streamOutboundSession struct {
@@ -101,6 +103,7 @@ func (s *streamOutboundStore) Next(sessionID uint8, now time.Time) (VpnProto.Pac
 		session.queue = session.queue[1:]
 		session.pending = append(session.pending, outboundPendingPacket{
 			Packet:     packet,
+			CreatedAt:  now,
 			RetryAt:    now.Add(streamOutboundInitialRetryDelay),
 			RetryDelay: streamOutboundInitialRetryDelay,
 		})
@@ -122,12 +125,53 @@ func (s *streamOutboundStore) Next(sessionID uint8, now time.Time) (VpnProto.Pac
 		delay = streamOutboundInitialRetryDelay
 	}
 	session.pending[selectedIdx].RetryAt = now.Add(delay)
+	session.pending[selectedIdx].RetryCount++
 	delay *= 2
 	if delay > streamOutboundMaxRetryDelay {
 		delay = streamOutboundMaxRetryDelay
 	}
 	session.pending[selectedIdx].RetryDelay = delay
 	return cloneOutboundPacket(packet), true
+}
+
+func (s *streamOutboundStore) ExpireStalled(sessionID uint8, now time.Time, maxRetries int, ttl time.Duration) []uint16 {
+	if s == nil {
+		return nil
+	}
+	if maxRetries < 1 {
+		maxRetries = 24
+	}
+	if ttl <= 0 {
+		ttl = 120 * time.Second
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session := s.sessions[sessionID]
+	if session == nil || len(session.pending) == 0 {
+		return nil
+	}
+
+	expiredMap := make(map[uint16]struct{}, 2)
+	for _, pending := range session.pending {
+		if pending.RetryCount >= maxRetries || now.Sub(pending.CreatedAt) >= ttl {
+			expiredMap[pending.Packet.StreamID] = struct{}{}
+		}
+	}
+	if len(expiredMap) == 0 {
+		return nil
+	}
+
+	expired := make([]uint16, 0, len(expiredMap))
+	for streamID := range expiredMap {
+		expired = append(expired, streamID)
+		pruneOutboundStreamPackets(session, streamID)
+	}
+	if len(session.pending) == 0 && len(session.queue) == 0 {
+		delete(s.sessions, sessionID)
+	}
+	return expired
 }
 
 func (s *streamOutboundStore) Ack(sessionID uint8, packetType uint8, streamID uint16, sequenceNum uint16) bool {

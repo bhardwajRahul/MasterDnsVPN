@@ -47,6 +47,8 @@ MAX_PACKETS_PER_BATCH = 20
 # Maximum in-flight outbound stream packets per session on server side.
 STREAM_OUTBOUND_WINDOW = 4
 STREAM_OUTBOUND_QUEUE_LIMIT = 256
+STREAM_OUTBOUND_MAX_RETRIES = 24
+STREAM_OUTBOUND_TTL_SECONDS = 120.0
 
 # Upstream resolvers used for tunneled DNS queries.
 DNS_UPSTREAM_SERVERS = ["1.1.1.1:53"]

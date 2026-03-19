@@ -1440,6 +1440,53 @@ func TestQueueStreamPacketRejectsDataOnBackpressure(t *testing.T) {
 	}
 }
 
+func TestExpireClientStreamTXQueuesRSTOnRetryBudgetExceeded(t *testing.T) {
+	c := New(config.ClientConfig{
+		StreamTXWindow:     1,
+		StreamTXQueueLimit: 8,
+		StreamTXMaxRetries: 1,
+		StreamTXTTLSeconds: 60,
+	}, nil, nil)
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	stream := c.createStream(24, serverConn)
+	defer c.deleteStream(stream.ID)
+
+	if err := c.queueStreamPacket(stream, Enums.PACKET_STREAM_DATA, []byte("stalled")); err != nil {
+		t.Fatalf("queueStreamPacket returned error: %v", err)
+	}
+	if packet, _, stop := nextClientStreamTX(stream, 1); stop || packet == nil {
+		t.Fatalf("expected first packet to move inflight, stop=%v packet=%v", stop, packet)
+	}
+
+	stream.mu.Lock()
+	if len(stream.TXInFlight) != 1 {
+		stream.mu.Unlock()
+		t.Fatalf("expected one inflight packet, got=%d", len(stream.TXInFlight))
+	}
+	stream.TXInFlight[0].RetryCount = 1
+	stream.TXInFlight[0].CreatedAt = time.Now().Add(-time.Second)
+	stream.mu.Unlock()
+
+	if !c.expireClientStreamTX(stream, time.Now()) {
+		t.Fatal("expected stalled inflight packet to trigger reset scheduling")
+	}
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if !stream.ResetSent {
+		t.Fatal("expected stream reset flag to be set")
+	}
+	if len(stream.TXInFlight) != 0 {
+		t.Fatalf("expected inflight queue to be cleared, got=%d", len(stream.TXInFlight))
+	}
+	if len(stream.TXQueue) != 1 || stream.TXQueue[0].PacketType != Enums.PACKET_STREAM_RST {
+		t.Fatalf("expected queued reset packet, queue=%+v", stream.TXQueue)
+	}
+}
+
 func TestDispatchDNSQueryFailsWithoutValidConnections(t *testing.T) {
 	codec, err := security.NewCodec(0, "")
 	if err != nil {
