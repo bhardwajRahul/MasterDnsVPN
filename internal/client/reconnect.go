@@ -46,6 +46,7 @@ func (c *Client) RunConnectionManager(ctx context.Context, ready chan<- struct{}
 				}
 				continue
 			}
+
 			if c.log != nil {
 				c.log.Infof(
 					"\U0001F4CF <green>Initial MTU Sync Completed, Upload: <cyan>%d</cyan> Download: <cyan>%d</cyan></green>",
