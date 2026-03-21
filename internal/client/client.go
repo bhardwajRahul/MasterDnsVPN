@@ -118,6 +118,7 @@ type Client struct {
 
 	udpBufferPool   sync.Pool
 	mtuProbeCounter atomic.Uint64
+	pingManager     *PingManager
 
 	tunnelWriterWorkers   int
 	tunnelReaderWorkers   int
@@ -125,10 +126,15 @@ type Client struct {
 	tunnelPacketQueueSize int
 	tunnelPacketTimeout   time.Duration
 	txChannel             chan asyncPacket
-	rxChannel             chan []byte
+	rxChannel             chan asyncReadPacket
 
 	asyncCancel context.CancelFunc
 	asyncWG     sync.WaitGroup
+}
+
+type asyncReadPacket struct {
+	data []byte
+	addr *net.UDPAddr
 }
 
 type asyncPacket struct {
@@ -328,8 +334,9 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		tunnelPacketQueueSize: cfg.TunnelPacketQueueSize,
 		tunnelPacketTimeout:   time.Duration(cfg.TunnelPacketTimeout * float64(time.Second)),
 		txChannel:             make(chan asyncPacket, cfg.TunnelPacketQueueSize),
-		rxChannel:             make(chan []byte, cfg.TunnelPacketQueueSize),
+		rxChannel:             make(chan asyncReadPacket, cfg.TunnelPacketQueueSize),
 	}
+	c.pingManager = newPingManager(c)
 
 	if c.localDNSCacheFlushTick <= 0 {
 		c.localDNSCacheFlushTick = time.Minute

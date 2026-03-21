@@ -26,18 +26,7 @@ var (
 	stream0DNSRetryMaxDelay        = 2 * time.Second
 	stream0DNSOnlyWarmDuration     = 30 * time.Second
 	stream0DNSOnlyWarmPingInterval = time.Second
-
-	// Ping Intervals
-	stream0PingBusyInterval = 300 * time.Millisecond // Active stream or DNS in queue
-	stream0PingIdleStep1    = 500 * time.Millisecond // < 5s idle
-	stream0PingIdleStep2    = 3 * time.Second        // < 35s idle
-	stream0PingIdleStep3    = 30 * time.Second       // > 35s idle
-	stream0MaxQueuedPings   = 100
-
-	// Aliases for tests (to avoid breaking client_test.go)
-	stream0DNSOnlyPingInterval = stream0PingIdleStep2
-	stream0DNSOnlyWarmMaxSleep = 200 * time.Millisecond
-	stream0PingDNSOnlyMaxSleep = 500 * time.Millisecond
+	stream0MaxQueuedPings          = 100
 )
 
 type stream0DNSRequestState struct {
@@ -110,9 +99,8 @@ func (r *stream0Runtime) Start(parent context.Context) error {
 	r.schedulerMu.Lock()
 	r.scheduler.SetMaxPackedBlocks(r.client.MaxPackedBlocks())
 	r.schedulerMu.Unlock()
-	r.wg.Add(2)
+	r.wg.Add(1)
 	go r.txLoop()
-	go r.pingLoop()
 	return nil
 }
 
@@ -252,40 +240,6 @@ func (r *stream0Runtime) QueuePing() bool {
 		return false
 	}
 	r.queuedPings.Add(1)
-	if r.client != nil && r.client.log != nil {
-		reason := r.currentPingReason()
-		now := time.Now()
-		r.mu.Lock()
-		shouldLogReason := reason != r.lastPingReason || now.Sub(r.lastPingLogAt) >= 2*time.Second
-		if shouldLogReason {
-			r.lastPingReason = reason
-			r.lastPingLogAt = now
-		}
-		r.mu.Unlock()
-		if shouldLogReason {
-			r.client.log.Debugf(
-				"🏓 <blue>Queued Poll Ping</blue> <magenta>|</magenta> <blue>InFlight</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Queued</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Reason</blue>: <cyan>%s</cyan>",
-				r.inFlight.Load(),
-				r.queuedPings.Load(),
-				reason,
-			)
-			reason, activeStreams, dnsPending, hasStreamTX, hasControl, idleTime := r.currentPingState()
-			r.client.log.Debugf(
-				"🏓 <blue>Ping State</blue> <magenta>|</magenta> <blue>Reason</blue>: <cyan>%s</cyan> <magenta>|</magenta> <blue>Active Streams</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>DNS</blue>: <cyan>%d</cyan> <magenta>|</magenta> <blue>Stream TX</blue>: <cyan>%t</cyan> <magenta>|</magenta> <blue>Control</blue>: <cyan>%t</cyan> <magenta>|</magenta> <blue>Idle</blue>: <cyan>%s</cyan>",
-				reason,
-				activeStreams,
-				dnsPending,
-				hasStreamTX,
-				hasControl,
-				idleTime.Round(time.Millisecond),
-			)
-		} else {
-			r.client.log.Debugf(
-				"🏓 <blue>Queued Poll Ping | InFlight: <cyan>%d</cyan></blue>",
-				r.inFlight.Load(),
-			)
-		}
-	}
 	r.notifyWake()
 	return true
 }
@@ -359,148 +313,8 @@ func (r *stream0Runtime) txLoop() {
 	}
 }
 
-func (r *stream0Runtime) pingLoop() {
-	defer r.wg.Done()
-	timer := time.NewTimer(time.Second)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		default:
-		}
-
-		now := time.Now()
-		if r.client != nil && r.client.dnsResponses != nil {
-			r.client.dnsResponses.Purge(now, r.client.localDNSFragmentTimeout())
-		}
-		retrySleep := r.queueDueDNSRetries(now)
-		shouldPing, pingSleep := r.nextPingSchedule(now)
-		if shouldPing {
-			if r.QueuePing() {
-				r.lastPingTime.Store(now.UnixNano())
-			}
-		}
-
-		sleepFor := minPositiveDuration(retrySleep, pingSleep)
-		if sleepFor <= 0 {
-			sleepFor = 100 * time.Millisecond
-		}
-
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(sleepFor)
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-timer.C:
-		}
-	}
-}
-
-func (r *stream0Runtime) nextPingSchedule(now time.Time) (bool, time.Duration) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	lastPingTime := time.Unix(0, r.lastPingTime.Load())
-	lastDataActivity := time.Unix(0, r.lastDataActivity.Load())
-	idleTime := now.Sub(lastDataActivity)
-
-	activeStreams := 0
-	hasDNS := len(r.dnsRequests) > 0
-	hasStreamTX := false
-	hasControl := false
-	if r.client != nil {
-		activeStreams = r.client.activeStreamCount()
-		hasStreamTX = r.client.hasActiveStreamTXWork()
-		hasControl = r.client.hasPendingStreamControlWork()
-	}
-	isBusy := hasDNS || hasStreamTX
-	switch {
-	case hasStreamTX:
-		r.lastPingReason = "stream-tx"
-	case hasDNS:
-		r.lastPingReason = "dns"
-	case hasControl:
-		r.lastPingReason = "control-wait"
-	case activeStreams > 0 && idleTime < 5*time.Second:
-		r.lastPingReason = "stream-open-warm"
-	case activeStreams > 0:
-		r.lastPingReason = "stream-open-idle"
-	case idleTime < 5*time.Second:
-		r.lastPingReason = "idle-warm"
-	case idleTime < 35*time.Second:
-		r.lastPingReason = "idle-cooling"
-	default:
-		r.lastPingReason = "idle-cold"
-	}
-
-	var pingInterval time.Duration
-	var maxSleep time.Duration
-
-	if isBusy {
-		pingInterval = stream0PingBusyInterval // 0.3s
-		maxSleep = 180 * time.Millisecond
-	} else if hasControl {
-		pingInterval = time.Second
-		maxSleep = 250 * time.Millisecond
-	} else if activeStreams > 0 && idleTime < 5*time.Second {
-		pingInterval = time.Second
-		maxSleep = 300 * time.Millisecond
-	} else if idleTime < 5*time.Second {
-		pingInterval = stream0PingIdleStep1 // 0.5s
-		maxSleep = 200 * time.Millisecond
-	} else if idleTime < 35*time.Second {
-		pingInterval = stream0PingIdleStep2 // 3s
-		maxSleep = 500 * time.Millisecond
-	} else {
-		pingInterval = stream0PingIdleStep3 // 30s
-		maxSleep = time.Second
-	}
-
-	timeSinceLastPing := now.Sub(lastPingTime)
-	if timeSinceLastPing >= pingInterval {
-		return true, pingInterval
-	}
-
-	sleepFor := pingInterval - timeSinceLastPing
-	if sleepFor > maxSleep {
-		sleepFor = maxSleep
-	}
-	return false, sleepFor
-}
-
 func (r *stream0Runtime) currentPingReason() string {
-	reason, _, _, _, _, _ := r.currentPingState()
-	return reason
-}
-
-func (r *stream0Runtime) currentPingState() (string, int, int, bool, bool, time.Duration) {
-	if r == nil {
-		return "stopped", 0, 0, false, false, 0
-	}
-	r.mu.Lock()
-	lastPingReason := r.lastPingReason
-	lastDataActivity := time.Unix(0, r.lastDataActivity.Load())
-	dnsPending := len(r.dnsRequests)
-	r.mu.Unlock()
-	activeStreams := 0
-	hasStreamTX := false
-	hasControl := false
-	if r.client != nil {
-		activeStreams = r.client.activeStreamCount()
-		hasStreamTX = r.client.hasActiveStreamTXWork()
-		hasControl = r.client.hasPendingStreamControlWork()
-	}
-	if lastPingReason == "" {
-		lastPingReason = "unknown"
-	}
-	return lastPingReason, activeStreams, dnsPending, hasStreamTX, hasControl, time.Since(lastDataActivity)
+	return r.lastPingReason
 }
 
 func (r *stream0Runtime) processDequeue(packet arq.QueuedPacket) {

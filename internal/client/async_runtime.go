@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	Enums "masterdnsvpn-go/internal/enums"
 )
 
 // StopAsyncRuntime stops all running workers (Readers, Writers, Processors).
@@ -18,6 +20,7 @@ func (c *Client) StopAsyncRuntime() {
 
 		// Final drain to return all buffers to the pool and prevent memory leaks.
 		c.drainQueues()
+		c.pingManager.Stop()
 		c.log.Debugf("\U0001F232 <green>Async Runtime stopped cleanly.</green>")
 	}
 }
@@ -68,6 +71,9 @@ func (c *Client) StartAsyncRuntime(parentCtx context.Context) error {
 		conn.Close()
 	}()
 
+	// 8. Start Ping Manager (Autonomous adaptive pinging)
+	c.pingManager.Start(runtimeCtx)
+
 	return nil
 }
 
@@ -86,8 +92,10 @@ drainRX:
 	// Drain RX and return buffers to pool
 	for {
 		select {
-		case data := <-c.rxChannel:
-			c.udpBufferPool.Put(data[:cap(data)])
+		case pkt := <-c.rxChannel:
+			if pkt.data != nil {
+				c.udpBufferPool.Put(pkt.data[:cap(pkt.data)])
+			}
 		default:
 			return
 		}
@@ -127,7 +135,7 @@ func (c *Client) asyncReaderWorker(ctx context.Context, id int, conn *net.UDPCon
 			return
 		default:
 			buf := c.udpBufferPool.Get().([]byte)
-			n, _, err := conn.ReadFromUDP(buf)
+			n, addr, err := conn.ReadFromUDP(buf)
 			if err != nil {
 				c.udpBufferPool.Put(buf)
 				if ctx.Err() != nil {
@@ -139,7 +147,7 @@ func (c *Client) asyncReaderWorker(ctx context.Context, id int, conn *net.UDPCon
 			packetData := buf[:n]
 
 			select {
-			case c.rxChannel <- packetData:
+			case c.rxChannel <- asyncReadPacket{data: packetData, addr: addr}:
 			default:
 				// Queue full! Drop packet and RECYCLE buffer.
 				c.udpBufferPool.Put(buf)
@@ -156,23 +164,31 @@ func (c *Client) asyncProcessorWorker(ctx context.Context, id int) {
 		select {
 		case <-ctx.Done():
 			return
-		case data := <-c.rxChannel:
-			c.handleInboundPacket(data)
+		case pkt := <-c.rxChannel:
+			c.handleInboundPacket(pkt.data, pkt.addr)
 
 			// RECYCLE buffer back to the pool.
-			c.udpBufferPool.Put(data[:cap(data)])
+			c.udpBufferPool.Put(pkt.data[:cap(pkt.data)])
 		}
 	}
 }
 
-// handleInboundPacket is the entry point for the next system's logic (ARQ, etc.).
-func (c *Client) handleInboundPacket(data []byte) {
-	// DEBUG ONLY - avoid spamming Infof or Debugf in production
-	// c.log.Debugf("Processed <cyan>%d</cyan> bytes", len(data))
+// handleInboundPacket is the central entry point for all received tunnel packets.
+func (c *Client) handleInboundPacket(data []byte, addr *net.UDPAddr) {
+	c.log.Debugf("Inbound packet from %v (%d bytes)", addr, len(data))
+
+	// Wake up ping manager only for non-PONG packets (actual business or control data)
+	if len(data) > 0 && data[0] != byte(Enums.PACKET_PONG) {
+		c.pingManager.NotifyDataActivity()
+	}
 }
 
 // SendBurstPacket adds a packet to the transmission queue.
 func (c *Client) SendBurstPacket(conn Connection, payload []byte) {
+	// Wake up ping manager only if it's not a ping (avoid loop)
+	if len(payload) > 0 && payload[0] != byte(Enums.PACKET_PING) {
+		c.pingManager.NotifyDataActivity()
+	}
 	select {
 	case c.txChannel <- asyncPacket{conn: conn, payload: payload}:
 	default:

@@ -53,6 +53,11 @@ func (c *Client) sendQueuedRuntimePacket(packet arq.QueuedPacket) error {
 		return ErrTunnelDNSDispatchFailed
 	}
 
+	// Wake up ping manager if it's not a ping packet
+	if packet.PacketType != Enums.PACKET_PING {
+		c.pingManager.NotifyDataActivity()
+	}
+
 	var (
 		connections []Connection
 		err         error
