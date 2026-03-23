@@ -1758,19 +1758,15 @@ func (s *Server) handleStreamAckPacket(vpnPacket VpnProto.Packet, sessionRecord 
 		return s.enqueueMissingStreamReset(record, vpnPacket)
 	}
 
-	if vpnPacket.PacketType == Enums.PACKET_STREAM_DATA_ACK {
-		stream.ARQ.ReceiveAck(vpnPacket.SequenceNum)
-	} else {
-		stream.ARQ.ReceiveControlAck(vpnPacket.PacketType, vpnPacket.SequenceNum, vpnPacket.FragmentID)
-	}
+	handledAck := stream.ARQ.HandleAckPacket(vpnPacket.PacketType, vpnPacket.SequenceNum, vpnPacket.FragmentID)
 
 	// Update legacy state for visibility (removed)
 	now := time.Now()
 
-	if vpnPacket.PacketType == Enums.PACKET_STREAM_RST_ACK {
+	if handledAck && vpnPacket.PacketType == Enums.PACKET_STREAM_RST_ACK {
 		s.removeStreamDataFragmentsForStream(vpnPacket.SessionID, vpnPacket.StreamID)
 		record.removeStream(vpnPacket.StreamID, now)
-	} else if vpnPacket.PacketType == Enums.PACKET_STREAM_FIN_ACK {
+	} else if handledAck && vpnPacket.PacketType == Enums.PACKET_STREAM_FIN_ACK {
 		// If ARQ considers it done, we can remove it.
 		if stream.ARQ.IsClosed() {
 			record.removeStream(vpnPacket.StreamID, now)
@@ -1795,8 +1791,7 @@ func (s *Server) handleSocksAckPacket(vpnPacket VpnProto.Packet, sessionRecord *
 		return s.enqueueMissingStreamReset(record, vpnPacket)
 	}
 
-	stream.ARQ.ReceiveControlAck(vpnPacket.PacketType, vpnPacket.SequenceNum, vpnPacket.FragmentID)
-	return true
+	return stream.ARQ.HandleAckPacket(vpnPacket.PacketType, vpnPacket.SequenceNum, vpnPacket.FragmentID)
 }
 
 func (s *Server) expireStalledOutboundStreams(sessionID uint8, now time.Time) {

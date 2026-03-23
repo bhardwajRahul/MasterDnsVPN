@@ -170,17 +170,14 @@ func (c *Client) HandleStreamPacket(packet VpnProto.Packet) error {
 	switch packet.PacketType {
 	case Enums.PACKET_STREAM_DATA, Enums.PACKET_STREAM_RESEND:
 		arqObj.ReceiveData(packet.SequenceNum, packet.Payload)
-	case Enums.PACKET_STREAM_DATA_ACK:
-		arqObj.ReceiveAck(packet.SequenceNum)
 	case Enums.PACKET_STREAM_FIN:
 		arqObj.MarkFinReceived(packet.SequenceNum)
 	case Enums.PACKET_STREAM_RST:
 		arqObj.MarkRstReceived(packet.SequenceNum)
 		c.removeStream(packet.StreamID)
 	default:
-		// Handle generic control ACKs (acks to our SYN, etc.)
-		arqObj.ReceiveControlAck(packet.PacketType, packet.SequenceNum, packet.FragmentID)
-		if packet.PacketType == Enums.PACKET_STREAM_RST_ACK || packet.PacketType == Enums.PACKET_STREAM_FIN_ACK {
+		handledAck := arqObj.HandleAckPacket(packet.PacketType, packet.SequenceNum, packet.FragmentID)
+		if handledAck && (packet.PacketType == Enums.PACKET_STREAM_RST_ACK || packet.PacketType == Enums.PACKET_STREAM_FIN_ACK) {
 			if s.StatusValue() == streamStatusCancelled || arqObj.IsClosed() {
 				c.removeStream(packet.StreamID)
 			}

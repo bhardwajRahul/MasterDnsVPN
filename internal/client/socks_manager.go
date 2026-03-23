@@ -553,6 +553,6 @@ func (c *Client) HandleSocksControlAck(packet VpnProto.Packet) error {
 		return nil
 	}
 
-	arqObj.ReceiveControlAck(packet.PacketType, packet.SequenceNum, packet.FragmentID)
+	arqObj.HandleAckPacket(packet.PacketType, packet.SequenceNum, packet.FragmentID)
 	return nil
 }

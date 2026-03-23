@@ -1136,20 +1136,26 @@ func (a *ARQ) ReceiveData(sn uint16, data []byte) {
 	a.tryFinalizeRemoteEOF()
 }
 
-// ReceiveAck resolves inbound STREAM_DATA_ACK and frees SEND_WINDOW backpressure buffer slots
-func (a *ARQ) ReceiveAck(sn uint16) {
+// ReceiveAck resolves inbound STREAM_DATA_ACK and frees SEND_WINDOW backpressure buffer slots.
+// It returns true only when this ARQ instance was actually tracking the data packet.
+func (a *ARQ) ReceiveAck(sn uint16) bool {
 	a.mu.Lock()
 	a.lastActivity = time.Now()
+	handled := false
 
 	if _, exists := a.sndBuf[sn]; exists {
 		delete(a.sndBuf, sn)
 		if len(a.sndBuf) < a.limit {
 			a.signalWindowNotFull()
 		}
+		handled = true
 	}
 	a.mu.Unlock()
 
-	a.settleTerminalDrain()
+	if handled {
+		a.settleTerminalDrain()
+	}
+	return handled
 }
 
 // ---------------------------------------------------------------------
@@ -1218,45 +1224,57 @@ func (a *ARQ) SendControlPacket(packetType uint8, sequenceNum uint16, fragmentID
 func (a *ARQ) ReceiveControlAck(ackPacketType uint8, sequenceNum uint16, fragmentID uint8) bool {
 	a.mu.Lock()
 	a.lastActivity = time.Now()
-	waitingFor := a.waitingAckFor
+	originPtype, ok := Enums.ReverseControlAckFor(ackPacketType)
+	if !ok {
+		a.mu.Unlock()
+		return false
+	}
 
-	if ackPacketType == Enums.PACKET_STREAM_FIN_ACK {
+	key := uint32(originPtype)<<24 | uint32(sequenceNum)<<8 | uint32(fragmentID)
+	_, tracked := a.controlSndBuf[key]
+
+	waitingFor := a.waitingAckFor
+	isWaitingFin := ackPacketType == Enums.PACKET_STREAM_FIN_ACK && waitingFor == Enums.PACKET_STREAM_FIN
+	isWaitingRst := ackPacketType == Enums.PACKET_STREAM_RST_ACK && waitingFor == Enums.PACKET_STREAM_RST
+
+	if !tracked && !isWaitingFin && !isWaitingRst {
 		a.mu.Unlock()
+		return false
+	}
+
+	if tracked {
+		delete(a.controlSndBuf, key)
+	}
+	a.mu.Unlock()
+
+	if ackPacketType == Enums.PACKET_STREAM_FIN_ACK && isWaitingFin {
 		a.markFinAcked(sequenceNum)
-		if waitingFor == Enums.PACKET_STREAM_FIN {
-			a.finalizeClose("FIN acknowledged")
-			return true
-		}
-		a.mu.Lock()
-	} else if ackPacketType == Enums.PACKET_STREAM_RST_ACK {
-		a.mu.Unlock()
+		a.finalizeClose("FIN acknowledged")
+		return true
+	}
+
+	if ackPacketType == Enums.PACKET_STREAM_RST_ACK && isWaitingRst {
 		a.markRstAcked(sequenceNum)
 		a.finalizeClose("RST acknowledged")
 		return true
 	}
 
-	originPtype, ok := Enums.ReverseControlAckFor(ackPacketType)
-	var cleared bool
-	// Note: Local DNS fragments from server are handled by fragmentstore,
-	// but control-plane fragments (like split DNS REQs) need matching keys.
+	return tracked
+}
 
-	if !ok {
-		key := uint32(ackPacketType)<<24 | uint32(sequenceNum)<<8 | uint32(fragmentID)
-		_, exists := a.controlSndBuf[key]
-		if exists {
-			delete(a.controlSndBuf, key)
-			cleared = true
-		}
-	} else {
-		key := uint32(originPtype)<<24 | uint32(sequenceNum)<<8 | uint32(fragmentID)
-		_, exists := a.controlSndBuf[key]
-		if exists {
-			delete(a.controlSndBuf, key)
-			cleared = true
-		}
+// HandleAckPacket is the unified ACK entrypoint for this ARQ stream.
+// It consumes DATA_ACK locally, consumes tracked control ACKs, and silently
+// ignores ACKs that were not sent by this ARQ instance.
+func (a *ARQ) HandleAckPacket(packetType uint8, sequenceNum uint16, fragmentID uint8) bool {
+	if packetType == Enums.PACKET_STREAM_DATA_ACK {
+		return a.ReceiveAck(sequenceNum)
 	}
-	a.mu.Unlock()
-	return cleared
+
+	if _, ok := Enums.ReverseControlAckFor(packetType); !ok {
+		return false
+	}
+
+	return a.ReceiveControlAck(packetType, sequenceNum, fragmentID)
 }
 
 func (a *ARQ) checkRetransmits() {

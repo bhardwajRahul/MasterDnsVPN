@@ -186,7 +186,7 @@ func (c *Client) HandleDNSQueryAck(packet VpnProto.Packet) error {
 
 	if ok && s0 != nil {
 		if arqObj, ok := s0.Stream.(*arq.ARQ); ok {
-			arqObj.ReceiveControlAck(packet.PacketType, packet.SequenceNum, packet.FragmentID)
+			arqObj.HandleAckPacket(packet.PacketType, packet.SequenceNum, packet.FragmentID)
 		}
 	}
 	return nil
