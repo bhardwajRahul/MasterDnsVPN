@@ -160,8 +160,8 @@ func LoadClientConfig(filename string) (ClientConfig, error) {
 		return cfg, fmt.Errorf("SOCKS5_PASS cannot exceed 255 bytes")
 	}
 
-	if cfg.SOCKS5Auth && (cfg.SOCKS5User == "" || cfg.SOCKS5Pass == "") {
-		return cfg, fmt.Errorf("SOCKS5_AUTH requires both SOCKS5_USER and SOCKS5_PASS")
+	if cfg.SOCKS5Auth && cfg.SOCKS5User == "" {
+		return cfg, fmt.Errorf("SOCKS5_AUTH requires SOCKS5_USER")
 	}
 
 	cfg.LocalDNSIP = defaultString(strings.TrimSpace(cfg.LocalDNSIP), "127.0.0.1")

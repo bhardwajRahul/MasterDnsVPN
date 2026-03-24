@@ -170,3 +170,34 @@ ENCRYPTION_KEY = "secret"
 		t.Fatal("tcp mode should be loaded")
 	}
 }
+
+func TestLoadClientConfigAllowsUsernameOnlySocksAuth(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "client_config.toml")
+	resolversPath := filepath.Join(dir, "client_resolvers.txt")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+DOMAINS = ["v.domain.com"]
+SOCKS5_AUTH = true
+SOCKS5_USER = "user_only"
+SOCKS5_PASS = ""
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = "secret"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+	if err := os.WriteFile(resolversPath, []byte("8.8.8.8\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile resolvers failed: %v", err)
+	}
+
+	cfg, err := LoadClientConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadClientConfig returned error: %v", err)
+	}
+
+	if !cfg.SOCKS5Auth || cfg.SOCKS5User != "user_only" || cfg.SOCKS5Pass != "" {
+		t.Fatalf("unexpected socks auth config: auth=%v user=%q pass=%q", cfg.SOCKS5Auth, cfg.SOCKS5User, cfg.SOCKS5Pass)
+	}
+}

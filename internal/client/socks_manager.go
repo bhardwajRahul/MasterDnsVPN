@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"time"
 
 	"masterdnsvpn-go/internal/arq"
@@ -20,7 +21,13 @@ import (
 )
 
 const (
+	SOCKS4_VERSION = 0x04
 	SOCKS5_VERSION = 0x05
+
+	SOCKS4_CMD_CONNECT = 0x01
+
+	SOCKS4_REPLY_GRANTED  = 0x5A
+	SOCKS4_REPLY_REJECTED = 0x5B
 
 	SOCKS5_AUTH_METHOD_NO_AUTH       = 0x00
 	SOCKS5_AUTH_METHOD_USER_PASS     = 0x02
@@ -50,22 +57,44 @@ const (
 
 var errLateSocksResult = errors.New("late socks result for closed or terminal local stream")
 
-// HandleSOCKS5 manages the SOCKS5 handshake and specialized requests.
-func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
+func (c *Client) supportsSOCKS4() bool {
+	if !c.cfg.SOCKS5Auth {
+		return true
+	}
 
-	// 1. Greeting
-	header := make([]byte, 2)
+	return c.cfg.SOCKS5User != "" && c.cfg.SOCKS5Pass == ""
+}
+
+// HandleSOCKS5 manages the local SOCKS handshake and supports SOCKS4/4a and SOCKS5.
+func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
+	version := make([]byte, 1)
+	if _, err := io.ReadFull(conn, version); err != nil {
+		_ = conn.Close()
+		return
+	}
+
+	switch version[0] {
+	case SOCKS5_VERSION:
+		c.handleSOCKS5Request(ctx, conn)
+	case SOCKS4_VERSION:
+		if !c.supportsSOCKS4() {
+			_ = conn.Close()
+			return
+		}
+		c.handleSOCKS4Request(ctx, conn)
+	default:
+		_ = conn.Close()
+	}
+}
+
+func (c *Client) handleSOCKS5Request(ctx context.Context, conn net.Conn) {
+	header := make([]byte, 1)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		_ = conn.Close()
 		return
 	}
 
-	if header[0] != SOCKS5_VERSION {
-		_ = conn.Close()
-		return
-	}
-
-	numMethods := int(header[1])
+	numMethods := int(header[0])
 	methods := make([]byte, numMethods)
 	if _, err := io.ReadFull(conn, methods); err != nil {
 		_ = conn.Close()
@@ -74,18 +103,12 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 
 	methodSelected := byte(SOCKS5_AUTH_METHOD_NO_ACCEPTABLE)
 	if c.cfg.SOCKS5Auth {
-		for _, m := range methods {
-			if m == SOCKS5_AUTH_METHOD_USER_PASS {
-				methodSelected = SOCKS5_AUTH_METHOD_USER_PASS
-				break
-			}
+		if slices.Contains(methods, SOCKS5_AUTH_METHOD_USER_PASS) {
+			methodSelected = SOCKS5_AUTH_METHOD_USER_PASS
 		}
 	} else {
-		for _, m := range methods {
-			if m == SOCKS5_AUTH_METHOD_NO_AUTH {
-				methodSelected = SOCKS5_AUTH_METHOD_NO_AUTH
-				break
-			}
+		if slices.Contains(methods, SOCKS5_AUTH_METHOD_NO_AUTH) {
+			methodSelected = SOCKS5_AUTH_METHOD_NO_AUTH
 		}
 	}
 
@@ -95,11 +118,9 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// 2. Authentication
 	if methodSelected == SOCKS5_AUTH_METHOD_USER_PASS {
 		authHeader := make([]byte, 2)
 		if _, err := io.ReadFull(conn, authHeader); err != nil {
-			_ = conn.Close()
 			_ = conn.Close()
 			return
 		}
@@ -136,7 +157,6 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 		_, _ = conn.Write([]byte{SOCKS5_USER_AUTH_VERSION, SOCKS5_USER_AUTH_SUCCESS})
 	}
 
-	// 3. Request
 	reqHeader := make([]byte, 4)
 	if _, err := io.ReadFull(conn, reqHeader); err != nil {
 		_ = conn.Close()
@@ -159,6 +179,7 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 			_ = conn.Close()
 			return
 		}
+
 		addr = net.IP(ip).String()
 	case SOCKS5_ATYP_DOMAIN:
 		lenBuf := make([]byte, 1)
@@ -166,6 +187,7 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 			_ = conn.Close()
 			return
 		}
+
 		domainLen := int(lenBuf[0])
 		domain := make([]byte, domainLen)
 		if _, err := io.ReadFull(conn, domain); err != nil {
@@ -179,6 +201,7 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 			_ = conn.Close()
 			return
 		}
+
 		addr = net.IP(ip).String()
 	default:
 		_ = conn.Close()
@@ -193,7 +216,7 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 	port := binary.BigEndian.Uint16(portBuf)
 
 	if cmd == SOCKS5_CMD_CONNECT {
-		c.HandleSOCKS5Connect(ctx, conn, addr, port, atyp)
+		c.handleSOCKSConnect(ctx, conn, addr, port, atyp, SOCKS5_VERSION)
 		return
 	}
 
@@ -206,18 +229,88 @@ func (c *Client) HandleSOCKS5(ctx context.Context, conn net.Conn) {
 	_ = conn.Close()
 }
 
-func (c *Client) HandleSOCKS5Connect(ctx context.Context, conn net.Conn, addr string, port uint16, atyp byte) {
-	// 1. Get a new Stream ID
-	streamID, ok := c.get_new_stream_id()
-	if !ok {
-		c.log.Errorf("❌ <red>Failed to get new Stream ID for SOCKS5 CONNECT</red>")
-		_ = c.sendSocksReply(conn, SOCKS5_REPLY_GENERAL_FAILURE, SOCKS5_ATYP_IPV4, net.IPv4zero, 0)
+func (c *Client) handleSOCKS4Request(ctx context.Context, conn net.Conn) {
+	req := make([]byte, 7)
+	if _, err := io.ReadFull(conn, req); err != nil {
+		_ = conn.Close()
 		return
 	}
 
-	c.log.Infof("🔌 <green>New SOCKS5 TCP CONNECT to <cyan>%s:%d</cyan>, Stream ID: <cyan>%d</cyan></green>", addr, port, streamID)
+	if req[0] != SOCKS4_CMD_CONNECT {
+		_ = c.sendSocks4Reply(conn, false)
+		_ = conn.Close()
+		return
+	}
 
-	// 2. Prepare Target Payload
+	port := binary.BigEndian.Uint16(req[1:3])
+	dstIP := net.IPv4(req[3], req[4], req[5], req[6])
+
+	userID, err := readNullTerminatedSocksField(conn)
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+
+	if c.cfg.SOCKS5Auth && c.cfg.SOCKS5User != string(userID) {
+		_ = c.sendSocks4Reply(conn, false)
+		_ = conn.Close()
+		return
+	}
+
+	atyp := byte(SOCKS5_ATYP_IPV4)
+	addr := dstIP.String()
+
+	// SOCKS4a: 0.0.0.x, with the hostname appended after USERID.
+	if req[3] == 0x00 && req[4] == 0x00 && req[5] == 0x00 && req[6] != 0x00 {
+		domain, err := readNullTerminatedSocksField(conn)
+		if err != nil || len(domain) == 0 {
+			_ = c.sendSocks4Reply(conn, false)
+			_ = conn.Close()
+			return
+		}
+		atyp = SOCKS5_ATYP_DOMAIN
+		addr = string(domain)
+	}
+
+	c.handleSOCKSConnect(ctx, conn, addr, port, atyp, SOCKS4_VERSION)
+}
+
+func readNullTerminatedSocksField(conn net.Conn) ([]byte, error) {
+	buf := make([]byte, 0, 64)
+	single := make([]byte, 1)
+	for {
+		if _, err := io.ReadFull(conn, single); err != nil {
+			return nil, err
+		}
+		if single[0] == 0x00 {
+			return buf, nil
+		}
+		if len(buf) >= 255 {
+			return nil, errors.New("socks field too long")
+		}
+		buf = append(buf, single[0])
+	}
+}
+
+func (c *Client) handleSOCKSConnect(ctx context.Context, conn net.Conn, addr string, port uint16, atyp byte, socksVersion byte) {
+	streamID, ok := c.get_new_stream_id()
+	if !ok {
+		c.log.Errorf("❌ <red>Failed to get new Stream ID for SOCKS CONNECT</red>")
+		if socksVersion == SOCKS4_VERSION {
+			_ = c.sendSocks4Reply(conn, false)
+		} else {
+			_ = c.sendSocksReply(conn, SOCKS5_REPLY_GENERAL_FAILURE, SOCKS5_ATYP_IPV4, net.IPv4zero, 0)
+		}
+		return
+	}
+
+	socksLabel := "SOCKS5"
+	if socksVersion == SOCKS4_VERSION {
+		socksLabel = "SOCKS4"
+	}
+
+	c.log.Infof("🔌 <green>New %s TCP CONNECT to <cyan>%s:%d</cyan>, Stream ID: <cyan>%d</cyan></green>", socksLabel, addr, port, streamID)
+
 	var targetPayload []byte
 	targetPayload = append(targetPayload, atyp)
 	switch atyp {
@@ -234,22 +327,26 @@ func (c *Client) HandleSOCKS5Connect(ctx context.Context, conn net.Conn, addr st
 	binary.BigEndian.PutUint16(pBuf, port)
 	targetPayload = append(targetPayload, pBuf...)
 
-	// 3. Create Stream
 	s := c.new_stream(streamID, conn, nil)
 	if s == nil {
-		_ = c.sendSocksReply(conn, SOCKS5_REPLY_GENERAL_FAILURE, SOCKS5_ATYP_IPV4, net.IPv4zero, 0)
+		if socksVersion == SOCKS4_VERSION {
+			_ = c.sendSocks4Reply(conn, false)
+		} else {
+			_ = c.sendSocksReply(conn, SOCKS5_REPLY_GENERAL_FAILURE, SOCKS5_ATYP_IPV4, net.IPv4zero, 0)
+		}
 		return
 	}
+
+	s.LocalSocksVersion = socksVersion
 
 	arqObj, ok := s.Stream.(*arq.ARQ)
 	if !ok {
 		return
 	}
 
-	// 4. Send SOCKS5_SYN via ARQ (Priority 0)
 	fragments := fragmentPayload(targetPayload, c.syncedUploadMTU)
 	total := uint8(len(fragments))
-	sn := uint16(0) // Protocol usually uses 0 for SYN
+	sn := uint16(0)
 
 	for i, frag := range fragments {
 		arqObj.SendControlPacketWithTTL(
@@ -283,7 +380,14 @@ func (c *Client) writeSocksConnectResult(streamID uint16, rep byte) error {
 
 	s.stopPendingSOCKSWatch(true)
 
-	if err := c.sendSocksReply(s.NetConn, rep, SOCKS5_ATYP_IPV4, net.IPv4zero, 0); err != nil {
+	var err error
+	if s.LocalSocksVersion == SOCKS4_VERSION {
+		err = c.sendSocks4Reply(s.NetConn, rep == SOCKS5_REPLY_SUCCESS)
+	} else {
+		err = c.sendSocksReply(s.NetConn, rep, SOCKS5_ATYP_IPV4, net.IPv4zero, 0)
+	}
+
+	if err != nil {
 		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
 			return errLateSocksResult
 		}
@@ -373,6 +477,15 @@ func (c *Client) handlePendingSOCKSLocalClose(streamID uint16, reason string) {
 	}
 }
 
+func (c *Client) sendSocks4Reply(conn net.Conn, success bool) error {
+	replyCode := byte(SOCKS4_REPLY_REJECTED)
+	if success {
+		replyCode = SOCKS4_REPLY_GRANTED
+	}
+	_, err := conn.Write([]byte{0x00, replyCode, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	return err
+}
+
 func (c *Client) sendSocksReply(conn net.Conn, rep byte, atyp byte, bndAddr net.IP, bndPort uint16) error {
 	reply := []byte{SOCKS5_VERSION, rep, 0x00, atyp}
 
@@ -381,7 +494,6 @@ func (c *Client) sendSocksReply(conn net.Conn, rep byte, atyp byte, bndAddr net.
 	} else if atyp == SOCKS5_ATYP_IPV6 {
 		reply = append(reply, bndAddr.To16()...)
 	} else if atyp == SOCKS5_ATYP_DOMAIN {
-		// Just send zero IPv4 if it's domain atyp but we don't have a specific IP
 		reply[3] = SOCKS5_ATYP_IPV4
 		reply = append(reply, net.IPv4zero...)
 	}
@@ -394,10 +506,9 @@ func (c *Client) sendSocksReply(conn net.Conn, rep byte, atyp byte, bndAddr net.
 }
 
 func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, clientAddr string, clientPort uint16, atyp byte) {
-	// Create UDP socket for association
 	bindAddr := &net.UDPAddr{
 		IP:   net.ParseIP(c.cfg.ListenIP),
-		Port: 0, // Random port
+		Port: 0,
 	}
 	udpConn, err := net.ListenUDP("udp", bindAddr)
 	if err != nil {
@@ -414,7 +525,6 @@ func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, cli
 
 	c.log.Debugf("📡 <green>SOCKS5 UDP Associate established on <cyan>%s</cyan></green>", boundAddr.String())
 
-	// Start UDP relay loop
 	buf := make([]byte, 4096)
 	for {
 		_ = udpConn.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -423,19 +533,16 @@ func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, cli
 			return
 		}
 
-		if n < 6 { // Min header size
+		if n < 6 {
 			continue
 		}
 
-		// Header: RSV(2), FRAG(1), ATYP(1), ADDR, PORT, DATA
-		// header[2] is FRAG, must be 0x00
 		if buf[2] != 0x00 {
 			continue
 		}
 
 		payloadOffset := 0
 		var targetPort uint16
-
 		var targetAddr string
 		switch buf[3] {
 		case SOCKS5_ATYP_IPV4:
@@ -455,7 +562,6 @@ func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, cli
 			continue
 		}
 
-		// Check if it's DNS (Port 53)
 		if targetPort != 53 {
 			c.log.Debugf("⚠️ <yellow>SOCKS5 UDP packet to non-DNS port %s:%d dropped. Closing association.</yellow>", targetAddr, targetPort)
 			return
@@ -465,9 +571,7 @@ func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, cli
 
 		dnsQuery := buf[payloadOffset:n]
 
-		// Use ProcessDNSQuery. If Cache Miss (returns false), we close and rely on client retry.
 		isHit := c.ProcessDNSQuery(dnsQuery, peerAddr, func(resp []byte) {
-			// Encapsulate DNS response back into SOCKS5 UDP
 			header := []byte{0x00, 0x00, 0x00, SOCKS5_ATYP_IPV4, 0, 0, 0, 0, 0, 53}
 			fullResp := append(header, resp...)
 			_, _ = udpConn.WriteToUDP(fullResp, peerAddr)
@@ -475,7 +579,7 @@ func (c *Client) handleSocksUDPAssociate(ctx context.Context, conn net.Conn, cli
 
 		if !isHit {
 			c.log.Debugf("🧳 <yellow>SOCKS5 DNS Miss or Pending - Closing association to trigger client retry.</yellow>")
-			return // Close association immediately as per requirement
+			return
 		}
 	}
 }
@@ -524,7 +628,7 @@ func (c *Client) HandleSocksConnected(packet VpnProto.Packet) error {
 		}
 	}
 
-	c.log.Debugf("🔌 <green>Socks5 successfully connected for stream %d</green>", packet.StreamID)
+	c.log.Debugf("🔌 <green>Socks successfully connected for stream %d</green>", packet.StreamID)
 	return nil
 }
 
@@ -564,7 +668,6 @@ func (c *Client) HandleSocksFailure(packet VpnProto.Packet) error {
 	}
 
 	arqObj, err := c.getStreamARQ(packet.StreamID)
-
 	if err != nil {
 		return nil
 	}
@@ -576,7 +679,6 @@ func (c *Client) HandleSocksFailure(packet VpnProto.Packet) error {
 
 func (c *Client) HandleSocksControlAck(packet VpnProto.Packet) error {
 	arqObj, err := c.getStreamARQ(packet.StreamID)
-
 	if err != nil {
 		return nil
 	}

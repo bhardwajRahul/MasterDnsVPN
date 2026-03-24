@@ -64,7 +64,7 @@ func (l *TCPListener) Stop() {
 	}
 }
 
-// handleConnection manages the SOCKS5 handshake and requests.
+// handleConnection manages the local proxy/TCP forwarding handshake and requests.
 func (l *TCPListener) handleConnection(ctx context.Context, conn net.Conn, protocolType string) {
 	if protocolType == "SOCKS5" {
 		l.client.HandleSOCKS5(ctx, conn)
