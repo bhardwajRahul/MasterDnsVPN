@@ -207,3 +207,38 @@ ENCRYPTION_KEY = "secret"
 		t.Fatalf("unexpected socks auth config: auth=%v user=%q pass=%q", cfg.SOCKS5Auth, cfg.SOCKS5User, cfg.SOCKS5Pass)
 	}
 }
+
+func TestLoadClientConfigAllowsShortAutoDisableWindowForQuickTesting(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "client_config.toml")
+	resolversPath := filepath.Join(dir, "client_resolvers.txt")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+DOMAINS = ["v.domain.com"]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = "secret"
+AUTO_DISABLE_TIMEOUT_SERVERS = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 3.0
+AUTO_DISABLE_MIN_OBSERVATIONS = 3
+AUTO_DISABLE_CHECK_INTERVAL_SECONDS = 3.0
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+	if err := os.WriteFile(resolversPath, []byte("8.8.8.8\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile resolvers failed: %v", err)
+	}
+
+	cfg, err := LoadClientConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadClientConfig returned error: %v", err)
+	}
+
+	if cfg.AutoDisableTimeoutWindowSeconds != 3.0 {
+		t.Fatalf("unexpected auto-disable timeout window: got=%v want=%v", cfg.AutoDisableTimeoutWindowSeconds, 3.0)
+	}
+	if cfg.AutoDisableCheckIntervalSeconds != 3.0 {
+		t.Fatalf("unexpected auto-disable check interval: got=%v want=%v", cfg.AutoDisableCheckIntervalSeconds, 3.0)
+	}
+}

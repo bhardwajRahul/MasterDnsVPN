@@ -132,6 +132,7 @@ func (c *Client) RunInitialMTUTests(ctx context.Context) error {
 	}
 
 	c.applySyncedMTUState(minUpload, minDownload, minUploadChars)
+	c.initResolverRecheckMeta()
 	c.appendMTUUsageSeparatorOnce()
 	c.logMTUCompletion(validConns)
 	return nil

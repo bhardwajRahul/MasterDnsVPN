@@ -61,6 +61,19 @@ SETUP_PACKET_DUPLICATION_COUNT = 5
 STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 2
 STREAM_RESOLVER_FAILOVER_COOLDOWN = 1.0
 
+# Background resolver health management.
+# Inactive resolvers from MTU scan are rechecked in the background using the synced MTUs.
+RECHECK_INACTIVE_SERVERS_ENABLED = true
+RECHECK_INACTIVE_INTERVAL_SECONDS = 1800.0
+RECHECK_SERVER_INTERVAL_SECONDS = 3.0
+RECHECK_BATCH_SIZE = 5
+
+# If a resolver only times out across this whole window, disable it at runtime.
+AUTO_DISABLE_TIMEOUT_SERVERS = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 180.0
+AUTO_DISABLE_MIN_OBSERVATIONS = 6
+AUTO_DISABLE_CHECK_INTERVAL_SECONDS = 3.0
+
 # Some DNS paths behave better with base-encoded labels. Keep false unless needed.
 BASE_ENCODE_DATA = false
 
@@ -92,8 +105,8 @@ SAVE_MTU_SERVERS_TO_FILE = false
 MTU_SERVERS_FILE_NAME = "masterdnsvpn_success_test_{time}.log"
 MTU_SERVERS_FILE_FORMAT = "{IP} - UP: {UP_MTU} DOWN: {DOWN-MTU}"
 MTU_USING_SECTION_SEPARATOR_TEXT = ""
-MTU_REMOVED_SERVER_LOG_FORMAT = ""
-MTU_ADDED_SERVER_LOG_FORMAT = ""
+MTU_REMOVED_SERVER_LOG_FORMAT = "Resolver {IP} removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT = "Resolver {IP} added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
 
 # ------------------------------------------------------------------------------
 # 7) Client Runtime Sizing

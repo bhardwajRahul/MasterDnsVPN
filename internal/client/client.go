@@ -42,14 +42,20 @@ type Client struct {
 	codec    *security.Codec
 	balancer *Balancer
 
-	connections      []Connection
-	connectionsByKey map[string]int
-	successMTUChecks bool
-	udpBufferPool    sync.Pool
-	resolverConnsMu  sync.Mutex
-	resolverConns    map[string]chan *net.UDPConn
-	resolverStatsMu  sync.Mutex
-	resolverPending  map[resolverSampleKey]resolverSample
+	connections         []Connection
+	connectionsByKey    map[string]int
+	successMTUChecks    bool
+	udpBufferPool       sync.Pool
+	resolverConnsMu     sync.Mutex
+	resolverConns       map[string]chan *net.UDPConn
+	resolverStatsMu     sync.Mutex
+	resolverPending     map[resolverSampleKey]resolverSample
+	resolverHealthMu    sync.Mutex
+	resolverHealth      map[string]*resolverHealthState
+	resolverRecheck     map[string]resolverRecheckState
+	runtimeDisabled     map[string]resolverDisabledState
+	nowFn               func() time.Time
+	recheckConnectionFn func(conn *Connection) bool
 
 	// MTU States
 	syncedUploadMTU                       int
@@ -212,6 +218,9 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		},
 		resolverConns:                         make(map[string]chan *net.UDPConn),
 		resolverPending:                       make(map[resolverSampleKey]resolverSample),
+		resolverHealth:                        make(map[string]*resolverHealthState),
+		resolverRecheck:                       make(map[string]resolverRecheckState),
+		runtimeDisabled:                       make(map[string]resolverDisabledState),
 		mtuTestRetries:                        cfg.MTUTestRetries,
 		mtuTestTimeout:                        time.Duration(cfg.MTUTestTimeout * float64(time.Second)),
 		mtuSaveToFile:                         cfg.SaveMTUServersToFile,

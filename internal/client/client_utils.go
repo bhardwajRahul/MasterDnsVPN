@@ -64,6 +64,9 @@ func makeConnectionKey(resolver string, port int, domain string) string {
 
 // now returns the current time.
 func (c *Client) now() time.Time {
+	if c != nil && c.nowFn != nil {
+		return c.nowFn()
+	}
 	return time.Now()
 }
 

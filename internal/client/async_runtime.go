@@ -221,7 +221,16 @@ func (c *Client) StartAsyncRuntime(parentCtx context.Context) error {
 	c.asyncWG.Add(1)
 	go c.asyncStreamCleanupWorker(runtimeCtx)
 
-	// 9. Lifecycle cleanup.
+	// 9. Resolver health runtime.
+	if c.cfg.AutoDisableTimeoutServers || c.cfg.RecheckInactiveServersEnabled {
+		c.asyncWG.Add(1)
+		go func() {
+			defer c.asyncWG.Done()
+			c.runResolverHealthLoop(runtimeCtx)
+		}()
+	}
+
+	// 10. Lifecycle cleanup.
 	c.asyncWG.Add(1)
 	go func() {
 		defer c.asyncWG.Done()
