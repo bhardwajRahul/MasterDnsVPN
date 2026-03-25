@@ -76,6 +76,12 @@ type arqControlItem struct {
 	TTL            time.Duration
 }
 
+type rtxJob struct {
+	sn              uint16
+	data            []byte
+	compressionType uint8
+}
+
 var setupControlPacketTypes = map[uint8]bool{
 	Enums.PACKET_STREAM_SYN: true,
 	Enums.PACKET_SOCKS5_SYN: true,
@@ -1162,12 +1168,6 @@ func (a *ARQ) HandleAckPacket(packetType uint8, sequenceNum uint16, fragmentID u
 // Retransmit Checks
 // ---------------------------------------------------------------------
 
-type rtxJob struct {
-	sn              uint16
-	data            []byte
-	compressionType uint8
-}
-
 func (a *ARQ) checkRetransmits() {
 	if a.isClosed() {
 		return
@@ -1213,10 +1213,19 @@ func (a *ARQ) checkRetransmits() {
 	}
 	a.mu.Unlock()
 
-	for _, j := range jobs {
+	priorityKinds := a.retransmitPriorityKinds(jobs)
+	for i, j := range jobs {
+		priority := Enums.DefaultPacketPriority(Enums.PACKET_STREAM_DATA)
+		packetType := uint8(Enums.PACKET_STREAM_DATA)
+
+		if priorityKinds[i] {
+			priority = Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND)
+			packetType = uint8(Enums.PACKET_STREAM_RESEND)
+		}
+
 		a.enqueuer.PushTXPacket(
-			Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND),
-			Enums.PACKET_STREAM_RESEND,
+			priority,
+			packetType,
 			j.sn, 0, 0, j.compressionType, 0, j.data,
 		)
 	}
@@ -1224,6 +1233,77 @@ func (a *ARQ) checkRetransmits() {
 	if a.enableControlReliability {
 		a.checkControlRetransmits(now)
 	}
+}
+
+func (a *ARQ) retransmitPriorityKinds(jobs []rtxJob) []bool {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	kinds := make([]bool, len(jobs))
+	if len(jobs) == 1 {
+		kinds[0] = true
+		return kinds
+	}
+
+	frontBudget := a.windowSize / 10
+	if frontBudget < 1 {
+		frontBudget = 1
+	}
+	if frontBudget > 64 {
+		frontBudget = 64
+	}
+	if frontBudget > len(jobs) {
+		frontBudget = len(jobs)
+	}
+
+	sndNxt := a.sndNxt
+	bestIdx := make([]int, 0, frontBudget)
+	bestDist := make([]uint16, 0, frontBudget)
+
+	insertBest := func(idx int, dist uint16) {
+		pos := len(bestIdx)
+		for pos > 0 {
+			prev := pos - 1
+			prevDist := bestDist[prev]
+			prevIdx := bestIdx[prev]
+			if prevDist > dist || (prevDist == dist && jobs[prevIdx].sn <= jobs[idx].sn) {
+				break
+			}
+			pos--
+		}
+
+		bestIdx = append(bestIdx, 0)
+		bestDist = append(bestDist, 0)
+		copy(bestIdx[pos+1:], bestIdx[pos:])
+		copy(bestDist[pos+1:], bestDist[pos:])
+		bestIdx[pos] = idx
+		bestDist[pos] = dist
+
+		if len(bestIdx) > frontBudget {
+			bestIdx = bestIdx[:frontBudget]
+			bestDist = bestDist[:frontBudget]
+		}
+	}
+
+	for i := range jobs {
+		dist := uint16(sndNxt - jobs[i].sn)
+		if len(bestIdx) < frontBudget {
+			insertBest(i, dist)
+			continue
+		}
+
+		last := len(bestIdx) - 1
+		if dist > bestDist[last] || (dist == bestDist[last] && jobs[i].sn < jobs[bestIdx[last]].sn) {
+			insertBest(i, dist)
+		}
+	}
+
+	for _, idx := range bestIdx {
+		kinds[idx] = true
+	}
+
+	return kinds
 }
 
 func (a *ARQ) handleTerminalRetransmitState(now time.Time) bool {

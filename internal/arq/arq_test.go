@@ -262,13 +262,80 @@ func TestARQ_Retransmission(t *testing.T) {
 	select {
 	case p := <-enqueuer.Packets:
 		if p.packetType != Enums.PACKET_STREAM_RESEND {
-			t.Errorf("expected PACKET_STREAM_RESEND, got %d", p.packetType)
+			t.Errorf("expected front retransmission to use PACKET_STREAM_RESEND, got %d", p.packetType)
+		}
+		if p.priority != Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND) {
+			t.Errorf("expected retry priority %d, got %d", Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND), p.priority)
 		}
 		if !bytes.Equal(p.payload, testData) {
 			t.Errorf("expected payload %s, got %s", string(testData), string(p.payload))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for retransmission")
+	}
+}
+
+func TestARQ_RetransmitPrioritiesFavorFrontWindow(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize: 10,
+		RTO:        0.1,
+		MaxRTO:     0.5,
+	})
+	a.windowSize = 10
+
+	jobs := []rtxJob{
+		{sn: 95},
+		{sn: 99},
+		{sn: 90},
+	}
+	a.sndNxt = 100
+
+	priorityKinds := a.retransmitPriorityKinds(jobs)
+	if len(priorityKinds) != len(jobs) {
+		t.Fatalf("expected %d priority decisions, got %d", len(jobs), len(priorityKinds))
+	}
+
+	retryPriority := Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND)
+	normalPriority := Enums.DefaultPacketPriority(Enums.PACKET_STREAM_DATA)
+
+	if !priorityKinds[2] {
+		t.Fatalf("expected oldest outstanding resend to get retry priority")
+	}
+	if priorityKinds[0] {
+		t.Fatalf("expected middle resend to stay normal priority")
+	}
+	if priorityKinds[1] {
+		t.Fatalf("expected newest resend to stay normal priority")
+	}
+
+	priorities := make([]int, len(priorityKinds))
+	packetTypes := make([]uint8, len(priorityKinds))
+	for i, isRetry := range priorityKinds {
+		priorities[i] = normalPriority
+		packetTypes[i] = Enums.PACKET_STREAM_DATA
+		if isRetry {
+			priorities[i] = retryPriority
+			packetTypes[i] = Enums.PACKET_STREAM_RESEND
+		}
+	}
+	if priorities[2] != retryPriority {
+		t.Fatalf("expected oldest outstanding resend to map to retry priority %d, got %d", retryPriority, priorities[2])
+	}
+	if priorities[0] != normalPriority {
+		t.Fatalf("expected middle resend to map to normal priority %d, got %d", normalPriority, priorities[0])
+	}
+	if priorities[1] != normalPriority {
+		t.Fatalf("expected newest resend to map to normal priority %d, got %d", normalPriority, priorities[1])
+	}
+	if packetTypes[2] != Enums.PACKET_STREAM_RESEND {
+		t.Fatalf("expected oldest outstanding resend to keep STREAM_RESEND type, got %d", packetTypes[2])
+	}
+	if packetTypes[0] != Enums.PACKET_STREAM_DATA {
+		t.Fatalf("expected middle retransmit to downgrade to STREAM_DATA, got %d", packetTypes[0])
+	}
+	if packetTypes[1] != Enums.PACKET_STREAM_DATA {
+		t.Fatalf("expected newest retransmit to downgrade to STREAM_DATA, got %d", packetTypes[1])
 	}
 }
 
