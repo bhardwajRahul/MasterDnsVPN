@@ -13,10 +13,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"masterdnsvpn-go/internal/client"
+	"masterdnsvpn-go/internal/runtimepath"
 	"masterdnsvpn-go/internal/version"
 )
 
@@ -31,7 +31,7 @@ func main() {
 		return
 	}
 
-	resolvedConfigPath := resolveRuntimePath(*configPath)
+	resolvedConfigPath := runtimepath.Resolve(*configPath)
 
 	app, err := client.Bootstrap(resolvedConfigPath, *logPath)
 	if err != nil {
@@ -61,27 +61,4 @@ func main() {
 	if log != nil {
 		log.Infof("\U0001F6D1 <red>Shutting down...</red>")
 	}
-}
-
-func resolveRuntimePath(path string) string {
-	if path == "" || filepath.IsAbs(path) {
-		return path
-	}
-
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-
-	exePath, err := os.Executable()
-	if err != nil {
-		return path
-	}
-
-	exeDir := filepath.Dir(exePath)
-	candidate := filepath.Join(exeDir, path)
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
-	}
-
-	return path
 }

@@ -206,7 +206,7 @@ MAX_PACKETS_PER_BATCH = 20
 # 1 = disabled.
 # Useful on lossy links so FIN/RST/SYN-ACK-style control blocks are repeated
 # without repopping queues.
-PACKET_BLOCK_CONTROL_DUPLICATION = 2
+PACKET_BLOCK_CONTROL_DUPLICATION = 1
 
 # TTLs for control packets sent during stream setup/result paths.
 STREAM_SETUP_ACK_TTL_SECONDS = 400.0
@@ -235,3 +235,8 @@ ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
 
 # Typical values: DEBUG, INFO, WARN, ERROR
 LOG_LEVEL = "INFO"
+
+# ------------------------------------------------------------------------------
+
+CONFIG_VERSION = "10"
+
