@@ -11,6 +11,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -508,7 +509,18 @@ func (c *Client) handleInboundPacket(data []byte, addr *net.UDPAddr) {
 	// 1. Extract VPN Packet from DNS Response
 	vpnPacket, err := DnsParser.ExtractVPNResponse(data, c.responseMode == mtuProbeBase64Reply)
 	if err != nil {
-		c.log.Warnf("\U0001F6A8 <red>Failed to parse VPN packet from DNS response: %v</red>", err)
+		if errors.Is(err, DnsParser.ErrTXTAnswerMissing) {
+			receivedAt := time.Now()
+			// summary := DnsParser.DescribeResponseWithoutTunnelPayload(data)
+			if parsed, parseErr := DnsParser.ParsePacketLite(data); parseErr == nil && parsed.Header.RCode != 0 {
+				c.trackResolverFailure(data, addr, receivedAt)
+			} else {
+				c.trackResolverSuccess(data, addr, receivedAt)
+			}
+			// c.log.Debugf("DNS response from %v had no tunnel TXT payload | %s", addr, summary)
+			return
+		}
+		// c.log.Warnf("\U0001F6A8 <red>Failed to parse VPN packet from DNS response: %v from %v</red>", err, addr)
 		return
 	}
 
