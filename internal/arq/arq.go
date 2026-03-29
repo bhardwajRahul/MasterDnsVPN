@@ -160,6 +160,8 @@ type ARQ struct {
 	deferredReason    string
 	deferredDeadline  time.Time
 	deferredPacket    uint8
+	clientEOFAt       time.Time
+	closeReadAckedAt  time.Time
 	waitingAck        bool
 	waitingAckFor     uint8
 	ackWaitDeadline   time.Time
@@ -673,6 +675,7 @@ func (a *ARQ) MarkCloseReadReceived() {
 func (a *ARQ) markCloseReadAcked() {
 	a.mu.Lock()
 	a.closeReadAcked = true
+	a.closeReadAckedAt = time.Now()
 
 	if a.closeReadReceived {
 		a.setState(StateClosing)
@@ -686,6 +689,7 @@ func (a *ARQ) MarkCloseWriteSent() {
 	a.closeWriteSent = true
 	a.localWriterBroken = true
 	a.localWriteClosed = true
+	a.rcvBuf = make(map[uint16][]byte)
 	if a.closeReadReceived {
 		a.setState(StateClosing)
 	}
@@ -771,6 +775,14 @@ func (a *ARQ) markLocalWriterBroken() {
 	a.localWriterBroken = true
 	a.localWritePending = false
 	a.rcvBuf = make(map[uint16][]byte)
+	a.mu.Unlock()
+}
+
+func (a *ARQ) noteClientEOF(now time.Time) {
+	a.mu.Lock()
+	if a.IsClient && a.clientEOFAt.IsZero() {
+		a.clientEOFAt = now
+	}
 	a.mu.Unlock()
 }
 
@@ -960,6 +972,7 @@ func (a *ARQ) ioLoop() {
 			case ioErrorEOF:
 				transientReadSince = time.Time{}
 				errorReason = "Local App Closed Connection (EOF)"
+				a.noteClientEOF(time.Now())
 				gracefulEOF = true
 			case ioErrorClosed:
 				transientReadSince = time.Time{}
@@ -1682,6 +1695,28 @@ func (a *ARQ) handleWaitingTerminalAck(ackPacketType uint8, isWaitingCloseRead b
 	return false
 }
 
+func (a *ARQ) handleTrackedCloseOrResetAck(originPtype uint8) bool {
+	switch originPtype {
+	case Enums.PACKET_STREAM_CLOSE_READ:
+		a.markCloseReadAcked()
+		a.clearWaitingAck(Enums.PACKET_STREAM_CLOSE_READ)
+		a.tryFinalizeRemoteEOF()
+		return true
+	case Enums.PACKET_STREAM_CLOSE_WRITE:
+		a.markCloseWriteAcked()
+		a.clearWaitingAck(Enums.PACKET_STREAM_CLOSE_WRITE)
+		a.maybeInitiateClientCloseReadAfterWriterBreak()
+		a.tryFinalizeRemoteEOF()
+		return true
+	case Enums.PACKET_STREAM_RST:
+		a.markRstAcked()
+		a.finalizeClose("RST acknowledged")
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *ARQ) ReceiveControlAck(ackPacketType uint8, sequenceNum uint16, fragmentID uint8) bool {
 	a.mu.Lock()
 	now := time.Now()
@@ -1736,6 +1771,10 @@ func (a *ARQ) ReceiveControlAck(ackPacketType uint8, sequenceNum uint16, fragmen
 
 	if tracked && sampleEligible {
 		a.noteSuccessfulControlSample(sample)
+	}
+
+	if tracked && a.handleTrackedCloseOrResetAck(originPtype) {
+		return true
 	}
 
 	if tracked && a.handleTrackedTerminalAck(originPtype) {
@@ -1968,6 +2007,24 @@ func (a *ARQ) handleTerminalRetransmitState(now time.Time) bool {
 		a.MarkRstReceived()
 		a.Close("Peer reset signaled", CloseOptions{Force: true})
 		return true
+	}
+
+	shouldInitiateCloseWriteAfterEOF := a.IsClient &&
+		((!a.clientEOFAt.IsZero() && now.Sub(a.clientEOFAt) >= 2*time.Second) ||
+			(!a.closeReadAckedAt.IsZero() && now.Sub(a.closeReadAckedAt) >= 2*time.Second)) &&
+		!a.closed &&
+		!a.rstSent &&
+		!a.rstReceived &&
+		a.closeReadSent &&
+		a.closeReadAcked &&
+		!a.closeWriteSent &&
+		!a.closeWriteAcked &&
+		!a.closeWriteReceived &&
+		!(a.waitingAck && a.waitingAckFor == Enums.PACKET_STREAM_CLOSE_WRITE)
+	if shouldInitiateCloseWriteAfterEOF {
+		a.mu.Unlock()
+		a.Close("Client close-read grace elapsed", CloseOptions{SendCloseWrite: true})
+		return false
 	}
 
 	if now.Sub(a.lastActivity) > a.inactivityTimeout {

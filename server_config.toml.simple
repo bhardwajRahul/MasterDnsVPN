@@ -204,7 +204,7 @@ MAX_PACKETS_PER_BATCH = 10
 
 # Duplicate the last packed control-block response this many dispatcher turns.
 # 1 = disabled.
-# Useful on lossy links so FIN/RST/SYN-ACK-style control blocks are repeated
+# Useful on lossy links so CLOSE/RST/SYN-ACK-style control blocks are repeated
 # without repopping queues.
 PACKET_BLOCK_CONTROL_DUPLICATION = 1
 
