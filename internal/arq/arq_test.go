@@ -317,6 +317,95 @@ type writeDeadlineTimeoutConn struct {
 	closed        bool
 }
 
+type aggregateWriteConn struct {
+	mu         sync.Mutex
+	writes     [][]byte
+	writeCount int
+	totalBytes int
+	writeCh    chan int
+	closed     bool
+}
+
+func newAggregateWriteConn() *aggregateWriteConn {
+	return &aggregateWriteConn{
+		writeCh: make(chan int, 4096),
+	}
+}
+
+func (c *aggregateWriteConn) Read(_ []byte) (int, error) {
+	time.Sleep(50 * time.Millisecond)
+	return 0, timeoutOnlyError{}
+}
+
+func (c *aggregateWriteConn) Write(p []byte) (int, error) {
+	payload := append([]byte(nil), p...)
+	c.mu.Lock()
+	c.writes = append(c.writes, payload)
+	c.writeCount++
+	c.totalBytes += len(payload)
+	c.mu.Unlock()
+
+	select {
+	case c.writeCh <- len(payload):
+	default:
+	}
+
+	return len(p), nil
+}
+
+func (c *aggregateWriteConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *aggregateWriteConn) snapshot() ([][]byte, int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	writes := make([][]byte, len(c.writes))
+	for i := range c.writes {
+		writes[i] = append([]byte(nil), c.writes[i]...)
+	}
+	return writes, c.writeCount, c.totalBytes
+}
+
+func (c *aggregateWriteConn) resetMetrics() {
+	c.mu.Lock()
+	c.writes = c.writes[:0]
+	c.writeCount = 0
+	c.totalBytes = 0
+	c.mu.Unlock()
+
+	for {
+		select {
+		case <-c.writeCh:
+		default:
+			return
+		}
+	}
+}
+
+func (c *aggregateWriteConn) waitForBytes(target int, timeout time.Duration) error {
+	if target <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	received := 0
+	for received < target {
+		select {
+		case n := <-c.writeCh:
+			received += n
+		case <-timer.C:
+			return errors.New("timed out waiting for aggregated writes")
+		}
+	}
+	return nil
+}
+
 func (c *writeDeadlineTimeoutConn) Read(_ []byte) (int, error) {
 	time.Sleep(50 * time.Millisecond)
 	return 0, timeoutOnlyError{}
@@ -1555,6 +1644,53 @@ func TestARQ_WriteLoopRetriesTransientWriteError(t *testing.T) {
 	}
 }
 
+func TestARQ_WriteLoopFlushesContiguousReceiveBufferInOrder(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	cfg := Config{
+		WindowSize: 100,
+		RTO:        0.1,
+		MaxRTO:     0.5,
+	}
+
+	conn := newAggregateWriteConn()
+	a := NewARQ(1, 1, enqueuer, conn, 1000, &testLogger{t}, cfg)
+	a.Start()
+	defer a.Close("test end", CloseOptions{Force: true})
+
+	chunks := [][]byte{
+		[]byte("hello "),
+		[]byte("from "),
+		[]byte("arq"),
+	}
+	expected := bytes.Join(chunks, nil)
+
+	a.mu.Lock()
+	start := a.rcvNxt
+	for i, chunk := range chunks {
+		a.rcvBuf[start+uint16(i)] = append([]byte(nil), chunk...)
+	}
+	a.mu.Unlock()
+	a.signalFlushReady()
+
+	if err := conn.waitForBytes(len(expected), time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	writes, _, totalBytes := conn.snapshot()
+	if totalBytes != len(expected) {
+		t.Fatalf("expected %d bytes written, got %d", len(expected), totalBytes)
+	}
+
+	got := make([]byte, 0, totalBytes)
+	for _, write := range writes {
+		got = append(got, write...)
+	}
+
+	if !bytes.Equal(got, expected) {
+		t.Fatalf("expected contiguous write payload %q, got %q", expected, got)
+	}
+}
+
 func TestARQ_WriteErrorQueuesCloseWriteWhileOutboundDataPending(t *testing.T) {
 	enqueuer := NewMockPacketEnqueuer()
 	cfg := Config{
@@ -2353,4 +2489,54 @@ func TestARQ_Backpressure(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("timed out waiting for 9th packet after ACK")
 	}
+}
+
+func BenchmarkARQ_WriteLoopFlushContiguousReceiveBuffer(b *testing.B) {
+	const (
+		chunkCount = 8
+		chunkSize  = 256
+	)
+
+	enqueuer := NewMockPacketEnqueuer()
+	cfg := Config{
+		WindowSize: 128,
+		RTO:        0.1,
+		MaxRTO:     0.5,
+	}
+
+	conn := newAggregateWriteConn()
+	a := NewARQ(1, 1, enqueuer, conn, 4096, nil, cfg)
+	a.Start()
+	defer a.Close("benchmark end", CloseOptions{Force: true})
+
+	chunks := make([][]byte, chunkCount)
+	totalSize := 0
+	for i := range chunks {
+		chunk := bytes.Repeat([]byte{byte('a' + i)}, chunkSize)
+		chunks[i] = chunk
+		totalSize += len(chunk)
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(int64(totalSize))
+	conn.resetMetrics()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		a.mu.Lock()
+		start := a.rcvNxt
+		for j, chunk := range chunks {
+			a.rcvBuf[start+uint16(j)] = chunk
+		}
+		a.mu.Unlock()
+		a.signalFlushReady()
+
+		if err := conn.waitForBytes(totalSize, 2*time.Second); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.StopTimer()
+	_, writeCount, _ := conn.snapshot()
+	b.ReportMetric(float64(writeCount)/float64(b.N), "writes/op")
 }
