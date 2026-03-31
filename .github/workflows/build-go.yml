@@ -194,14 +194,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          set +e
-          yes | sdkmanager "ndk;27.2.12479018"
-          status=$?
-          set -e
-          if [ "$status" -ne 0 ] && [ "$status" -ne 141 ]; then
-            exit "$status"
-          fi
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "ndk;27.2.12479018"
           NDK_ROOT="${ANDROID_SDK_ROOT}/ndk/27.2.12479018"
+          test -x "${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.android_cc }}"
+          test -x "${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.android_cxx }}"
           echo "ANDROID_NDK_ROOT=${NDK_ROOT}" >> "$GITHUB_ENV"
           echo "CC=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.android_cc }}" >> "$GITHUB_ENV"
           echo "CXX=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.android_cxx }}" >> "$GITHUB_ENV"
