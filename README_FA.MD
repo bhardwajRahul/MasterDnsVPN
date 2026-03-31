@@ -204,6 +204,13 @@ sudo firewall-cmd --reload
 | لینوکس (Legacy) 🐧 | `ARM64` | سیستم‌های ARM64 قدیمی‌تر که سازگاری بیشتری می‌خواهند | [دانلود نسخه لینوکس Legacy ARM64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux-Legacy_ARM64.zip) |
 | لینوکس (ARM) 🐧 | `ARM64` | سرورهای ARM، رزبری‌پای و بردهای مشابه | [دانلود نسخه لینوکس (ARM) ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_ARM64.zip) |
 | لینوکس (ARM) 🐧 | `ARMv7` | بردهای ARM ۳۲ بیتی و دستگاه‌های قدیمی‌تر | [دانلود نسخه لینوکس ARMv7 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_ARMV7.zip) |
+| لینوکس (ARM) 🐧 | `ARMv6` | بردهای ARM قدیمی‌تر و سیستم‌های سبک لینوکسی | [دانلود نسخه لینوکس ARMv6 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_ARMV6.zip) |
+| لینوکس (ARM) 🐧 | `ARMv5` | دستگاه‌های ARM خیلی قدیمی و سیستم‌های embedded | [دانلود نسخه لینوکس ARMv5 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_ARMV5.zip) |
+| لینوکس (Linux) 🐧 | `RISCV64` | بردها و سرورهای لینوکسی مبتنی بر RISC-V | [دانلود نسخه لینوکس RISCV64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_RISCV64.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS` | سیستم‌ها و روترهای لینوکسی MIPS با endian بزرگ | [دانلود نسخه لینوکس MIPS ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_MIPS.zip) |
+| لینوکس (MIPS) 🐧 | `MIPSLE` | سیستم‌ها و روترهای لینوکسی MIPS با endian کوچک | [دانلود نسخه لینوکس MIPSLE ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_MIPSLE.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS64` | سیستم‌های ۶۴ بیتی MIPS با endian بزرگ | [دانلود نسخه لینوکس MIPS64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_MIPS64.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS64LE` | سیستم‌های ۶۴ بیتی MIPS با endian کوچک | [دانلود نسخه لینوکس MIPS64LE ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Linux_MIPS64LE.zip) |
 | ترموکس / اندروید 📱 | `ARM64` | گوشی‌های اندرویدی جدید با Termux | [دانلود نسخه ترموکس ARM64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Termux_ARM64.zip) |
 | ترموکس / اندروید 📱 | `ARMv7` | گوشی‌های قدیمی‌تر با محیط ۳۲ بیتی Termux | [دانلود نسخه ترموکس ARMv7 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Client_Termux_ARMV7.zip) |
 
@@ -222,6 +229,13 @@ sudo firewall-cmd --reload
 | لینوکس (Legacy) 🐧 | `ARM64` | سیستم‌های ARM64 قدیمی‌تر که سازگاری بیشتری می‌خواهند | [دانلود سرور لینوکس Legacy ARM64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux-Legacy_ARM64.zip) |
 | لینوکس (ARM) 🐧 | `ARM64` | سرورهای ARM | [دانلود سرور لینوکس (ARM) ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_ARM64.zip) |
 | لینوکس (ARM) 🐧 | `ARMv7` | سرورهای ARM ۳۲ بیتی و دستگاه‌های embedded | [دانلود سرور لینوکس ARMv7 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_ARMV7.zip) |
+| لینوکس (ARM) 🐧 | `ARMv6` | بردهای ARM قدیمی‌تر و سیستم‌های سبک لینوکسی | [دانلود سرور لینوکس ARMv6 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_ARMV6.zip) |
+| لینوکس (ARM) 🐧 | `ARMv5` | دستگاه‌های ARM خیلی قدیمی و سیستم‌های embedded | [دانلود سرور لینوکس ARMv5 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_ARMV5.zip) |
+| لینوکس (Linux) 🐧 | `RISCV64` | بردها و سرورهای لینوکسی مبتنی بر RISC-V | [دانلود سرور لینوکس RISCV64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_RISCV64.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS` | سیستم‌ها و روترهای لینوکسی MIPS با endian بزرگ | [دانلود سرور لینوکس MIPS ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_MIPS.zip) |
+| لینوکس (MIPS) 🐧 | `MIPSLE` | سیستم‌ها و روترهای لینوکسی MIPS با endian کوچک | [دانلود سرور لینوکس MIPSLE ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_MIPSLE.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS64` | سیستم‌های ۶۴ بیتی MIPS با endian بزرگ | [دانلود سرور لینوکس MIPS64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_MIPS64.zip) |
+| لینوکس (MIPS) 🐧 | `MIPS64LE` | سیستم‌های ۶۴ بیتی MIPS با endian کوچک | [دانلود سرور لینوکس MIPS64LE ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Linux_MIPS64LE.zip) |
 | مک‌اواس (macOS) 🍎 | `ARM64` | مک‌های جدید (سری M1 / M2 / M3) | [دانلود سرور مک (Apple Silicon) ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_MacOS_ARM64.zip) |
 | مک‌اواس (macOS) 🍎 | `AMD64` | مک‌های اینتل | [دانلود سرور مک اینتل ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_MacOS_AMD64.zip) |
 | ترموکس / اندروید 📱 | `ARM64` | محیط‌های جدید اندروید / Termux | [دانلود سرور ترموکس ARM64 ⬇️](https://github.com/masterking32/MasterDnsVPN/releases/latest/download/MasterDnsVPN_Server_Termux_ARM64.zip) |
