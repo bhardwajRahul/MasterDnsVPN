@@ -294,29 +294,42 @@ remove_port53_forward_rules() {
 }
 
 stop_existing_masterdnsvpn_service() {
-  if ! systemctl list-unit-files 2>/dev/null | grep -q '^masterdnsvpn\.service'; then
-    return 0
-  fi
+  local unit_present=0
+  if systemctl list-unit-files --all 2>/dev/null | grep -q '^masterdnsvpn\.service'; then
+    unit_present=1
+    log_info "Stopping existing MasterDnsVPN service..."
+    systemctl stop masterdnsvpn 2>/dev/null || true
 
-  log_info "Stopping existing MasterDnsVPN service..."
-  systemctl stop masterdnsvpn 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+      if ! systemctl is-active --quiet masterdnsvpn; then
+        break
+      fi
+      sleep 1
+    done
 
-  for _ in 1 2 3 4 5; do
-    if ! systemctl is-active --quiet masterdnsvpn; then
-      return 0
+    local main_pid
+    main_pid="$(systemctl show masterdnsvpn --property MainPID --value 2>/dev/null || true)"
+    if [[ -n "${main_pid:-}" && "$main_pid" != "0" ]] && kill -0 "$main_pid" 2>/dev/null; then
+      log_warn "masterdnsvpn service is still active. Trying to terminate MainPID: $main_pid"
+      terminate_port53_pid "$main_pid" || true
     fi
-    sleep 1
-  done
 
-  local main_pid
-  main_pid="$(systemctl show masterdnsvpn --property MainPID --value 2>/dev/null || true)"
-  if [[ -n "${main_pid:-}" && "$main_pid" != "0" ]]; then
-    log_warn "masterdnsvpn service is still active. Trying to terminate MainPID: $main_pid"
-    terminate_port53_pid "$main_pid" || true
+    systemctl stop masterdnsvpn 2>/dev/null || true
+    systemctl reset-failed masterdnsvpn 2>/dev/null || true
   fi
 
-  systemctl stop masterdnsvpn 2>/dev/null || true
-  systemctl reset-failed masterdnsvpn 2>/dev/null || true
+  local pid cmdline killed=0
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    cmdline="$(ps -p "$pid" -o cmd= 2>/dev/null || true)"
+    if echo "$cmdline" | grep -qiE 'masterdnsvpn|masterdnsvpn_server'; then
+      if [[ $killed -eq 0 && $unit_present -eq 0 ]]; then
+        log_info "Stopping existing MasterDnsVPN process that was started outside systemd..."
+      fi
+      terminate_port53_pid "$pid" || true
+      killed=1
+    fi
+  done <<< "$(get_port53_pids)"
 }
 
 log_header "Managing Network Ports (Port 53)"
