@@ -882,7 +882,7 @@ func (a *ARQ) tryFinalizeRemoteEOF() {
 	waitingForCloseReadAck := a.waitingAck && a.waitingAckFor == Enums.PACKET_STREAM_CLOSE_READ
 	receiveDrained := (len(a.rcvBuf) == 0 && a.pendingInbound == 0) || a.localWriterBroken
 	writeSideSettled := (!a.localWriterBroken && (!a.closeWriteSent || a.closeWriteAcked)) ||
-		(a.localWriterBroken && (a.closeWriteSent || a.closeWriteAcked || a.closeWriteReceived))
+		(a.localWriterBroken && (a.closeWriteAcked || a.closeWriteReceived))
 	shouldClose := !a.closed &&
 		a.closeReadReceived &&
 		receiveDrained &&

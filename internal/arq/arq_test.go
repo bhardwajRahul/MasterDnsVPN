@@ -2149,6 +2149,39 @@ func TestARQ_ClientLocalDisconnectWaitsForPendingInboundQueueToDrain(t *testing.
 	}
 }
 
+func TestARQ_RemoteEOFDoesNotFinalizeWhileCloseWriteOnlySentForBrokenWriter(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize:               100,
+		RTO:                      0.1,
+		MaxRTO:                   0.5,
+		EnableControlReliability: true,
+	})
+
+	a.mu.Lock()
+	a.closeReadReceived = true
+	a.closeReadSent = true
+	a.closeReadAcked = true
+	a.localWriterBroken = true
+	a.localWriteClosed = true
+	a.closeWriteSent = true
+	a.waitingAck = true
+	a.waitingAckFor = Enums.PACKET_STREAM_CLOSE_WRITE
+	a.mu.Unlock()
+
+	a.tryFinalizeRemoteEOF()
+	if a.IsClosed() {
+		t.Fatal("stream should not finalize while CLOSE_WRITE is only sent and still awaiting settlement")
+	}
+
+	a.markCloseWriteAcked()
+	a.clearWaitingAck(Enums.PACKET_STREAM_CLOSE_WRITE)
+	a.tryFinalizeRemoteEOF()
+	if !a.IsClosed() {
+		t.Fatal("expected stream to finalize once CLOSE_WRITE is actually settled")
+	}
+}
+
 func TestARQ_RxLoopShutdownDrainsPendingInboundQueueAccounting(t *testing.T) {
 	enqueuer := NewMockPacketEnqueuer()
 	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
