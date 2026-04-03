@@ -814,6 +814,7 @@ func (a *ARQ) tryFinalizeClientLocalDisconnect() {
 		a.closeReadAcked &&
 		len(a.sndBuf) == 0 &&
 		len(a.rcvBuf) == 0 &&
+		a.pendingInbound == 0 &&
 		!a.localWritePending &&
 		!a.waitingAck &&
 		!a.deferredClose
@@ -1408,6 +1409,7 @@ func (a *ARQ) processReceivedDataBatch(batch []rxPayload) {
 		isNew   bool // newly inserted (not duplicate)
 		oldWrap bool // old/wrapped sn — ACK but don't insert
 	}
+
 	results := make([]rxResult, len(batch))
 
 	for i, pkt := range batch {
@@ -2417,13 +2419,24 @@ func (a *ARQ) finalizeClose(reason string) {
 
 	sndBufLen := len(a.sndBuf)
 	rcvBufLen := len(a.rcvBuf)
+	pendingInbound := a.pendingInbound
 	prevState := a.state
 	closeReadSent := a.closeReadSent
 	closeReadReceived := a.closeReadReceived
 	closeReadAcked := a.closeReadAcked
+	closeWriteSent := a.closeWriteSent
+	closeWriteReceived := a.closeWriteReceived
+	closeWriteAcked := a.closeWriteAcked
 	rstSent := a.rstSent
 	rstReceived := a.rstReceived
 	rstAcked := a.rstAcked
+	localWritePending := a.localWritePending
+	localWriteClosed := a.localWriteClosed
+	localWriterBroken := a.localWriterBroken
+	waitingAck := a.waitingAck
+	waitingAckFor := a.waitingAckFor
+	deferredClose := a.deferredClose
+	deferredPacket := a.deferredPacket
 	a.closeReason = reason
 	a.closed = true
 	a.deferredClose = false
@@ -2452,16 +2465,27 @@ func (a *ARQ) finalizeClose(reason string) {
 	a.mu.Unlock()
 
 	a.logger.Debugf(
-		"ARQ Stream Closed | Session: %d | Stream: %d | Reason: %s | PrevState: %d | SndBuf: %d | RcvBuf: %d | CloseRead: %t/%t/%t | RST: %t/%t/%t",
+		"ARQ Stream Closed | Session: %d | Stream: %d | Reason: %s | PrevState: %d | SndBuf: %d | RcvBuf: %d | PendingInbound: %d | LocalWrite: pending=%t closed=%t broken=%t | CloseRead: %t/%t/%t | CloseWrite: %t/%t/%t | WaitingAck: %t/%s | Deferred: %t/%s | RST: %t/%t/%t",
 		a.sessionID,
 		a.streamID,
 		reason,
 		prevState,
 		sndBufLen,
 		rcvBufLen,
+		pendingInbound,
+		localWritePending,
+		localWriteClosed,
+		localWriterBroken,
 		closeReadSent,
 		closeReadReceived,
 		closeReadAcked,
+		closeWriteSent,
+		closeWriteReceived,
+		closeWriteAcked,
+		waitingAck,
+		Enums.PacketTypeName(waitingAckFor),
+		deferredClose,
+		Enums.PacketTypeName(deferredPacket),
 		rstSent,
 		rstReceived,
 		rstAcked,

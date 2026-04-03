@@ -2240,6 +2240,60 @@ func TestARQ_ClientCloseWriteAndCloseReadAckFinalizeWithoutPeerCloseRead(t *test
 	}
 }
 
+func TestARQ_ClientLocalDisconnectWaitsForPendingInboundQueueToDrain(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize:               100,
+		RTO:                      0.1,
+		MaxRTO:                   0.5,
+		EnableControlReliability: true,
+		IsClient:                 true,
+	})
+
+	a.markLocalWriterBroken()
+	a.mu.Lock()
+	a.pendingInbound = 1
+	a.mu.Unlock()
+
+	a.Close("Local App Closed Connection (writer closed)", CloseOptions{SendCloseWrite: true})
+
+	select {
+	case <-enqueuer.Packets:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for initial STREAM_CLOSE_WRITE")
+	}
+
+	a.HandleAckPacket(Enums.PACKET_STREAM_CLOSE_WRITE_ACK, 0, 0)
+
+	select {
+	case packet := <-enqueuer.Packets:
+		if packet.packetType != Enums.PACKET_STREAM_CLOSE_READ {
+			t.Fatalf("expected STREAM_CLOSE_READ after CLOSE_WRITE_ACK, got %s", Enums.PacketTypeName(packet.packetType))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for follow-up STREAM_CLOSE_READ")
+	}
+
+	a.HandleAckPacket(Enums.PACKET_STREAM_CLOSE_READ_ACK, 0, 0)
+
+	select {
+	case <-a.Done():
+		t.Fatal("stream finalized before pending inbound queue drained")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	a.mu.Lock()
+	a.pendingInbound = 0
+	a.mu.Unlock()
+	a.tryFinalizeClientLocalDisconnect()
+
+	select {
+	case <-a.Done():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected client-local disconnect to finalize after pending inbound queue drained")
+	}
+}
+
 func TestARQ_WriteDeadlineTimeoutRetriesAndFlushes(t *testing.T) {
 	enqueuer := NewMockPacketEnqueuer()
 	cfg := Config{
