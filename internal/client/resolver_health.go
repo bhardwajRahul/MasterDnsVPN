@@ -77,7 +77,7 @@ func (c *Client) initResolverRecheckMeta() {
 	c.runtime.healthMu.Lock()
 	defer c.runtime.healthMu.Unlock()
 
-	allConns := c.balancer.GetAllConnections()
+	allConns := c.balancer.AllConnections()
 	c.runtime.health = make(map[string]*resolverHealthState, len(allConns))
 	c.runtime.recheck = make(map[string]resolverRecheckState, len(allConns))
 	c.runtime.runtimeDisabled = make(map[string]resolverDisabledState)

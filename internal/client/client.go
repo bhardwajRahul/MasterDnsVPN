@@ -178,20 +178,6 @@ type writerTask struct {
 	frames    []encodedOutboundDatagram
 }
 
-// Connection represents a unique domain-resolver pair with its associated metadata and MTU states.
-type Connection struct {
-	Domain           string
-	Resolver         string
-	ResolverPort     int
-	ResolverLabel    string
-	Key              string
-	IsValid          bool
-	UploadMTUBytes   int
-	UploadMTUChars   int
-	DownloadMTUBytes int
-	MTUResolveTime   time.Duration
-}
-
 // Bootstrap initializes a new Client by loading configuration, setting up logging,
 // and preparing the connection map.
 func Bootstrap(configPath string, logPath string, overrides config.ClientConfigOverrides) (*Client, error) {
