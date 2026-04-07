@@ -57,7 +57,7 @@ func TestAsyncStreamDispatcherDrainsQueuedWorkAfterSingleWake(t *testing.T) {
 	c.asyncWG.Wait()
 }
 
-func TestAsyncStreamDispatcherIgnoresTxSpaceSignalWhileIdle(t *testing.T) {
+func TestAsyncStreamDispatcherWakesOnTxSpaceSignal(t *testing.T) {
 	c := createTestClient(t)
 	c.cfg.DispatcherIdlePollIntervalSeconds = 0.01
 	c.txSignal = make(chan struct{}, 1)
@@ -73,8 +73,8 @@ func TestAsyncStreamDispatcherIgnoresTxSpaceSignalWhileIdle(t *testing.T) {
 	c.txSpaceSignal <- struct{}{}
 	time.Sleep(40 * time.Millisecond)
 
-	if len(c.txSpaceSignal) != 1 {
-		t.Fatal("expected idle dispatcher to ignore txSpaceSignal wakeups")
+	if len(c.txSpaceSignal) != 0 {
+		t.Fatal("expected dispatcher to consume txSpaceSignal wakeup")
 	}
 
 	cancel()
