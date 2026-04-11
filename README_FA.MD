@@ -479,10 +479,10 @@ sudo journalctl -u masterdnsvpn-client -f
 | `MTU_TEST_PARALLELISM` | `16` | اگر کمتر از `1` باشد، fallback اعمال می‌شود | چند تست MTU هم‌زمان انجام شوند.<br>عدد بالا startup را سریع‌تر می‌کند ولی CPU و ترافیک بیشتری می‌سازد. |
 | `SAVE_MTU_SERVERS_TO_FILE` | `false` | `true/false` | اگر `true` باشد، resolverهای موفق همراه با MTU نهایی‌شان در فایل ثبت می‌شوند.<br>برای تحلیل و ساختن پروفایل resolverها مفید است. |
 | `MTU_SERVERS_FILE_NAME` | `"masterdnsvpn_success_test_{time}.log"` | رشته | نام فایل خروجی لاگ تست MTU.<br>معمولاً placeholderهایی مثل `{time}` داخلش استفاده می‌شود تا هر run فایل جدا داشته باشد. |
-| `MTU_SERVERS_FILE_FORMAT` | `"{IP} - UP: {UP_MTU} DOWN: {DOWN-MTU}"` | رشته | فرمت هر خط برای resolverهای موفق است.<br>فقط روی متن خروجی اثر دارد و رفتار شبکه را عوض نمی‌کند. |
+| `MTU_SERVERS_FILE_FORMAT` | `"{IP} ({DOMAIN}) - UP: {UP_MTU} DOWN: {DOWN-MTU}"` | رشته | فرمت هر خط برای resolverهای موفق است.<br>فقط روی متن خروجی اثر دارد و رفتار شبکه را عوض نمی‌کند. |
 | `MTU_USING_SECTION_SEPARATOR_TEXT` | `""` | رشته | یک متن اختیاری برای جدا کردن runها یا سکشن‌های خروجی داخل فایل MTU. |
-| `MTU_REMOVED_SERVER_LOG_FORMAT` | `"Resolver {IP} removed at {TIME} due to {CAUSE}"` | رشته | قالب متن لاگی که وقتی یک resolver از لیست فعال حذف می‌شود نوشته می‌شود. |
-| `MTU_ADDED_SERVER_LOG_FORMAT` | `"Resolver {IP} added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"` | رشته | قالب متن لاگی که وقتی resolver بعداً دوباره سالم تشخیص داده می‌شود نوشته می‌شود. |
+| `MTU_REMOVED_SERVER_LOG_FORMAT` | `"Resolver {IP} ({DOMAIN}) removed at {TIME} due to {CAUSE}"` | رشته | قالب متن لاگی که وقتی یک resolver از لیست فعال حذف می‌شود نوشته می‌شود. |
+| `MTU_ADDED_SERVER_LOG_FORMAT` | `"Resolver {IP} ({DOMAIN}) added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"` | رشته | قالب متن لاگی که وقتی resolver بعداً دوباره سالم تشخیص داده می‌شود نوشته می‌شود. |
 
 ### ۳.۴.۷) بخش ⚙️ Workerها، queueها و زمان‌بندی runtime
 

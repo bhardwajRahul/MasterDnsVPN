@@ -177,7 +177,7 @@ ENCRYPTION_KEY = "secret"
 	if cfg.MTUTestRetries != 1 || cfg.MTUTestTimeout != 2.0 || cfg.MTUTestParallelism != 1 {
 		t.Fatalf("unexpected mtu defaults: retries=%d timeout=%v parallelism=%d", cfg.MTUTestRetries, cfg.MTUTestTimeout, cfg.MTUTestParallelism)
 	}
-	if cfg.MTUServersFileName != "masterdnsvpn_success_test_{time}.log" || cfg.MTUServersFileFormat != "{IP} - UP: {UP_MTU} DOWN: {DOWN-MTU}" {
+	if cfg.MTUServersFileName != "masterdnsvpn_success_test_{time}.log" || cfg.MTUServersFileFormat != "{IP} ({DOMAIN}) - UP: {UP_MTU} DOWN: {DOWN-MTU}" {
 		t.Fatalf("unexpected mtu file defaults: file=%q format=%q", cfg.MTUServersFileName, cfg.MTUServersFileFormat)
 	}
 	if cfg.ProtocolType != "TCP" {

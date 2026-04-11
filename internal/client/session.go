@@ -27,7 +27,7 @@ import (
 
 var (
 	ErrSessionInitFailed = errors.New("session init failed")
-	ErrSessionInitBusy   = errors.New("session init busy")
+	ErrSessionInitBusy   = errors.New("session init busy: server is at capacity or rejected the request")
 )
 
 const (
