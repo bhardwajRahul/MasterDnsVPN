@@ -7,11 +7,9 @@ Questo sistema è progettato attorno alla compatibilità con molti comportamenti
 
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/masterking32/MasterDnsVPN)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/5c7b2ce0-0af6-4648-8ded-fd1e847096cd.svg)](https://oosmetrics.com/achievement/5c7b2ce0-0af6-4648-8ded-fd1e847096cd)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/355e590f-9b4a-4015-bb8c-a7f27b721711.svg)](https://oosmetrics.com/achievement/355e590f-9b4a-4015-bb8c-a7f27b721711)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/4b98a42e-bf63-4f55-a382-0f10359a5e20.svg)](https://oosmetrics.com/achievement/4b98a42e-bf63-4f55-a382-0f10359a5e20)
 
-<a href="https://trendshift.io/repositories/23688" target="_blank"><img src="https://trendshift.io/api/badge/repositories/23688" alt="masterking32%2FMasterDnsVPN | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+<a href="https://trendshift.io/repositories/23688" target="_blank"><img src="https://trendshift.io/api/badge/repositories/23688" alt="masterking32%2FMasterDnsVPN | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/23688?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-23688" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/23688/daily?language=Go" alt="masterking32%2FMasterDnsVPN | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/23688?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-23688" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/23688/weekly?language=Go" alt="masterking32%2FMasterDnsVPN | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/23688?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-23688" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/23688/monthly?language=Go" alt="masterking32%2FMasterDnsVPN | Trendshift" width="250" height="55"/></a>
+
 
 ### 📊 MasterDnsVPN a Confronto con Progetti Simili
 
